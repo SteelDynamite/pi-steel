@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,7 +10,7 @@ import { getPackageDir } from "@earendil-works/pi-coding-agent";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(process.env.STEEL_TEST_PACKAGE_ROOT ?? join(here, ".."));
 
-test("real delegation inherits global loadout, safety hooks, and manual resources without parent -e", { timeout: 120_000 }, () => {
+for (const memory of [false, true]) test(`real delegation inherits ${memory ? "memory preset" : "custom loadout"}, safety hooks, and manual resources without parent -e`, { timeout: 120_000 }, () => {
   const home = mkdtempSync(join(tmpdir(), "steel-child-"));
   try {
     const agentDir = join(home, "agent");
@@ -23,12 +23,21 @@ test("real delegation inherits global loadout, safety hooks, and manual resource
     writeFileSync(join(manual, "prompts/manual.md"), "---\ndescription: Manual child fixture prompt\n---\nManual prompt.\n");
     writeFileSync(join(cwd, "protected.txt"), "original");
     writeFileSync(join(agentDir, "auth.json"), "{}");
+    const preset = JSON.parse(readFileSync(join(root, "presets/memory/steel.json"), "utf8"));
+    const memorySettings = JSON.parse(readFileSync(join(root, "presets/memory/settings.json"), "utf8"));
+    const memoryPath = join(home, "memory");
+    if (memory) cpSync(join(here, "../node_modules/pi-observational-memory"), memoryPath, { recursive: true });
     writeFileSync(join(agentDir, "settings.json"), JSON.stringify({
       // Manual loads first to seed restored state before the real goal handler.
-      packages: [manual, root], defaultProvider: "steel-local", defaultModel: "fixture",
-      compaction: { enabled: false }, retry: { enabled: false },
+      packages: [manual, root, ...(memory ? [{ source: memoryPath }] : [])], defaultProvider: "steel-local", defaultModel: "fixture",
+      compaction: { enabled: false }, retry: { enabled: false }, ...(memory ? memorySettings : {}),
     }));
-    writeFileSync(join(agentDir, "steel.json"), JSON.stringify({ version: 1, active: "children", managed: [], loadouts: {
+    if (memory) {
+      // Seed completed external ownership: print mode cannot confirm installs.
+      preset.loadouts.memory.external = [memoryPath];
+      preset.managed = [{ source: memoryPath }];
+    }
+    writeFileSync(join(agentDir, "steel.json"), JSON.stringify(memory ? preset : { version: 1, active: "children", managed: [], loadouts: {
       children: { bundled: ["pi-subagent", "pi-read-before-write", "pi-goal", "pi-mindful", "pi-recap"], external: [] },
     } }));
     const parent = join(home, "parent-only.mjs");
@@ -83,8 +92,10 @@ export default function(pi) {
     assert(commands.includes("skill:manual"), "manual skill survives filtering");
     assert(!commands.includes("parent-only"));
     for (const name of ["implement", "goal", "mindful", "recap"]) assert(commands.includes(name), name);
-    for (const name of ["doc-manifests-designer", "doc-manifests-maintainer", "doc-manifests-session-reviewer"]) assert(!commands.includes(`skill:${name}`), name);
-    assert(!commands.includes("todo"), "inactive bundled extension unavailable");
+    for (const name of ["doc-manifests-designer", "doc-manifests-maintainer", "doc-manifests-session-reviewer"]) assert.equal(commands.includes(`skill:${name}`), memory, name);
+    assert.equal(child.tools.some((tool: { name: string }) => tool.name === "todo"), memory, "bundled selection reaches child");
+    assert.equal(commands.includes("om:status"), memory, "external memory reaches child");
+    assert.equal(child.tools.some((tool: { name: string }) => tool.name === "recall"), memory);
     assert.equal(child.tools.find((tool: { name: string }) => tool.name === "subagent")?.exposure, "model-only");
     assert(!child.callable.includes("subagent"));
     assert.equal(child.results.subagent.isError, true, "nested invocation cannot bypass model-only exposure");

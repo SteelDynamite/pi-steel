@@ -47,6 +47,30 @@ Run `/steel use work`. Bundled IDs and their resources are recorded in [extensio
 
 `managed`, the optional `pending` ownership journal, and `incomplete` download records are internal state; do not edit them. Editing configuration alone does not change loaded resources: synchronize explicitly.
 
+### Memory preset
+
+[presets/memory/steel.json](presets/memory/steel.json) selects all bundled extensions plus upstream [pi-observational-memory](https://github.com/elpapi42/pi-observational-memory), pinned to upstream revision [`886f7a6`](https://github.com/elpapi42/pi-observational-memory/commit/886f7a6628d10ea420eb6ceecaee36691489b2fb). It is an external package, not a vendored module or fork. The reserved `full` and `minimal` loadouts are unchanged.
+
+[presets/memory/settings.json](presets/memory/settings.json) supplies its configuration overrides:
+
+| Threshold | Tokens |
+| --- | ---: |
+| Auto-compaction | 250,000 |
+| Observation | 30,864 |
+| Reflection | 61,728 |
+| Observation pool maximum | 61,728 |
+| Observation pool target | 30,864 |
+
+These scale upstream's scheduling and pool defaults by `250000 / 81000`, rounded to whole tokens. `calibrated` mode keeps the compaction threshold fixed; model-dependent capacity limits and output budgets remain unchanged. The threshold counts estimated source-history tokens, not total model context. Native Pi compaction settings are not modified.
+
+To apply during a deliberate installation or cutover:
+
+1. For a new Steel configuration, use the preset as `<agent-dir>/steel.json`. For an existing configuration, merge only `loadouts.memory`, preserving ownership journals and other loadouts.
+2. Merge the memory settings into `<agent-dir>/settings.json`'s `observational-memory` object, preserving unrelated settings and any memory model selection. Do not replace the whole settings file. These are explicit configuration overrides, not settings that Steel rewrites during synchronization.
+3. Reload Pi after the settings merge, then run `/steel use memory` and approve the external package download. Do not separately install it as a manually owned package. Start a fresh session after cutover; check `/steel status` and `/om:status`.
+
+The preset ships with Steel but is not applied on startup. Switching away unloads memory without erasing its settings or session history. Background memory workers use the session model unless configured otherwise and incur additional model usage.
+
 ### Ownership and failures
 
 - Unrelated manual packages and resource settings are preserved.

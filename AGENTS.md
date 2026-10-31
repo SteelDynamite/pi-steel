@@ -8,6 +8,13 @@
 - Optimize for a personal collection used across multiple environments, not a general package registry.
 - Use ordinary `AGENTS.md` guidance without repository-root or module-root locational ownership markers, mandatory source delegation, or repository-only working restrictions. Preserve bundled behavioral `SUBAGENTS.md` definitions, test fixtures, and locational-agent functionality for other projects.
 
+## Recurring upstream follow-up
+
+- At the start of each session in this repository, check the observational-memory stale-bundle bug alongside the user's requested work, even when that work is unrelated. Check current upstream HEAD/releases and [PR #101's report](https://github.com/elpapi42/pi-observational-memory/pull/101#issuecomment-6051460201), [#103](https://github.com/elpapi42/pi-observational-memory/pull/103), and [#107](https://github.com/elpapi42/pi-observational-memory/pull/107). Once per session is sufficient; do not replace the user's task with this follow-up.
+- Record the check date, upstream revision, and outcome here; briefly include the result with the requested work. If access fails, report that the check was blocked rather than assuming the bug is fixed.
+- This is read-only monitoring, not automatic installation, updating, or reconciliation. If upstream appears fixed, verify the actual distributed entry includes the source safeguards, then propose advancing Steel's pin. A merged PR alone is not proof. Retire this recurring check only after a validated pin update is approved and applied; active-installation changes still require separate approval.
+- Last checked **2026-10-31**: upstream HEAD `022da5e5554d04dfdc876ed7dac4a42c6b83dfd4` still contains the stale bundle. PRs #101, #103, and #107 are open and acknowledge the mismatch; no dedicated issue found. Keep the source-entry pin documented below.
+
 ## Approved loadout contract
 
 - Exactly one active named loadout; no stacking or overrides initially.
@@ -63,6 +70,8 @@ Observed 2026-10-31; recheck revisions and working trees immediately before impo
 - Operational package managers receive global settings only. Read project declarations separately for collision detection; never let untrusted project `npmCommand` reach package-path lookup or installation. Revalidate after confirmation and at commit.
 - `src/settings.ts` uses the public `SettingsStorage` snapshot contract and Pi 1.4's proper-lockfile protocol, then atomically replaces settings under that lock. Recheck compatibility when updating the host. Preserve unrelated current fields/packages; test cross-process contention and post-journal write failure. The global lock cannot serialize editors ignoring it, differently spelled symlink paths, independently locked project writes, or simultaneous same-package cache mutations.
 - The user explicitly delegated other-environment management to themselves. Remaining cutover gate: explicit recovery-backed cutover approval. Passing isolated tests does not authorize changing the active installation or deleting predecessors.
+- The pending cutover includes `presets/memory`: all bundled modules plus upstream `elpapi42/pi-observational-memory`, with scheduling/pool thresholds scaled by `250000 / 81000`. Keep it external; do not import the user's fork. Apply the settings fragment explicitly at cutover, preserving unrelated settings, memory model choices, native compaction settings, and Steel ownership state. This does not expand the manager into arbitrary settings management or authorize changing the current Pi installation.
+- Memory is pinned to upstream's source-entry revision `886f7a6628d10ea420eb6ceecaee36691489b2fb`: npm 3.1.4 lacks newer unobserved-context safeguards, and `022da5e`'s prebuilt `dist/index.ts` omits safeguards present in its source. Check the actual loaded entry before advancing the pin. The root dev dependency supplies an unchanged local test artifact; runtime admission remains through the loadout. Offline checks cover proportional thresholds, the 250k trigger boundary, host reloads, and child inheritance. A separate temporary-home check verified the exact Git source download, revision, settings, idempotency, and switching without provider calls.
 
 ## Documentation and repository hygiene
 

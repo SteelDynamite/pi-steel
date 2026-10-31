@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -75,6 +75,12 @@ async function exerciseHost(): Promise<void> {
     theme.name = name;
     writeFileSync(join(path, "themes", `${name}.json`), JSON.stringify(theme));
   }
+  // Test the pinned upstream artifact unchanged, using a local source to keep
+  // automated host checks offline. The shipped preset retains its Git identity.
+  packagePaths.memory = join(home, "memory");
+  cpSync(join(sourceRoot, "node_modules/pi-observational-memory"), packagePaths.memory, { recursive: true });
+  const memoryPreset = JSON.parse(readFileSync(join(root, "presets/memory/steel.json"), "utf8"));
+  const memorySettings = JSON.parse(readFileSync(join(root, "presets/memory/settings.json"), "utf8"));
   const settingsPath = join(agentDir, "settings.json");
   const configPath = join(agentDir, "steel.json");
   const hostPackage = JSON.parse(readFileSync(join(getPackageDir(), "package.json"), "utf8"));
@@ -83,7 +89,7 @@ async function exerciseHost(): Promise<void> {
   assert.equal(bootstrap.status, 0, `${bootstrap.stdout}\n${bootstrap.stderr}`);
   const installedSettings = JSON.parse(readFileSync(settingsPath, "utf8"));
   assert.deepEqual(installedSettings.packages.map((source: string) => resolve(agentDir, source)), [root], "fresh Pi bootstrap declares the entire package relative to its settings");
-  writeFileSync(settingsPath, JSON.stringify({ ...installedSettings, packages: [...installedSettings.packages, packagePaths.manual], theme: "dark", compaction: { enabled: false }, retry: { enabled: false } }));
+  writeFileSync(settingsPath, JSON.stringify({ ...installedSettings, packages: [...installedSettings.packages, packagePaths.manual], theme: "dark", compaction: { enabled: false }, retry: { enabled: false }, ...memorySettings }));
   const modelRuntime = await ModelRuntime.create({
     authPath: join(agentDir, "auth.json"), modelsPath: join(agentDir, "models.json"),
     modelsStorePath: join(agentDir, "models-cache.json"), refreshOnCreate: false, allowModelNetwork: false,
@@ -135,6 +141,7 @@ async function exerciseHost(): Promise<void> {
     config.loadouts.custom = { bundled: ["pi-doc-manifests", "pi-subagent"], external: [packagePaths.external] };
     config.loadouts.docs = { bundled: ["pi-doc-manifests"], external: [] };
     config.loadouts.agents = { bundled: ["pi-subagent"], external: [] };
+    config.loadouts.memory = { ...memoryPreset.loadouts.memory, external: [packagePaths.memory] };
     writeFileSync(configPath, JSON.stringify(config));
     await session.prompt("/steel use custom");
     assert.equal(reloads, 2, notices.join("\n"));
@@ -150,6 +157,31 @@ async function exerciseHost(): Promise<void> {
     await session.prompt("/steel use custom");
     assert.equal(reloads, 5, notices.join("\n"));
     await checkState(session, loader, members.filter(member => config.loadouts.custom.bundled.includes(member.id)).map(member => member.entry), true, true, true, errors);
+    const memoryInstalled = snapshot(packagePaths.memory);
+    for (const active of ["memory", "minimal", "memory"]) {
+      await session.prompt(`/steel use ${active}`);
+      const enabled = active === "memory";
+      await checkState(session, loader, enabled ? members.map(member => member.entry) : [], enabled, enabled, false, errors);
+      assert.equal(!!session.extensionRunner.getCommand("om:status"), enabled);
+      assert.equal(!!session.extensionRunner.getCommand("om:view"), enabled);
+      assert.equal(session.getActiveToolNames().includes("recall"), enabled);
+      const currentSettings = JSON.parse(readFileSync(settingsPath, "utf8"));
+      assert.deepEqual(currentSettings["observational-memory"], memorySettings["observational-memory"], "switching preserves explicit memory settings");
+      assert.deepEqual(currentSettings.compaction, { enabled: false }, "native compaction is not changed");
+      if (enabled) {
+        const start = notices.length;
+        await session.prompt("/om:status");
+        const status = notices.slice(start).join("\n");
+        for (const [label, value] of [["Next observation", 30864], ["Next reflection", 61728], ["Next compaction", 250000], ["Visible observation pool", 61728], ["Active observation pool", 30864]] as const) {
+          assert(status.split("\n").some(line => line.startsWith(`${label}:`) && line.includes(`/ ${value.toLocaleString()} `)), status);
+        }
+        const beforeSync: number = reloads;
+        await session.prompt("/steel sync");
+        assert.equal(reloads, beforeSync, "memory sync is idempotent");
+      }
+    }
+    assert.deepEqual(snapshot(packagePaths.memory), memoryInstalled, "switching never modifies the upstream package");
+    await session.prompt("/steel use custom");
     assert.deepEqual(snapshot(packagePaths.external), externalInstalled, "inactive external package remains installed and unchanged");
     assert.deepEqual(snapshot(packagePaths.manual), manualInstalled);
     assert(JSON.parse(readFileSync(settingsPath, "utf8")).packages.includes(packagePaths.manual), "manual declaration remains untouched");

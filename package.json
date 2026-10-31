@@ -11,6 +11,7 @@
     "index.ts",
     "src/**/*.ts",
     "extensions.manifest.json",
+    "presets/**/*.json",
     "extensions/*/*.ts",
     "extensions/*/*.js",
     "extensions/*/*.mjs",
@@ -76,6 +77,7 @@
     "@earendil-works/pi-coding-agent": "1.4.0",
     "@types/node": "^24.0.0",
     "@types/proper-lockfile": "^4.1.4",
+    "pi-observational-memory": "git+https://github.com/elpapi42/pi-observational-memory.git#886f7a6628d10ea420eb6ceecaee36691489b2fb",
     "tsx": "^4.20.0",
     "typescript": "^5.9.3"
   },
