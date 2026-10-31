@@ -1,17 +1,110 @@
 # pi-steel
 
-A personal Pi extension collection and loadout manager, distributed as one package.
-
-## Planned behavior
-
-- Keep extensions as independently selectable, testable modules in one monorepo.
-- Select one named loadout containing bundled and external extensions.
-- Install missing extensions and apply the selection through explicit manager commands.
-- Preserve unrelated extensions installed through normal Pi package management.
-- Keep inactive extensions installed but unloaded where supported.
-
-The initial scope is extensions only, with no loadout stacking or per-environment overrides. Skills, prompts, themes, arbitrary settings, and credentials are not managed by loadouts.
+A personal Pi extension collection and loadout manager, distributed as one package. Extensions remain independent modules; a loadout selects which ones Pi loads.
 
 ## Status
 
-Planning and migration bootstrap only. No extensions have been imported and the manager is not implemented. This repository is not yet an installable Pi package.
+All 13 modules are imported. Checks cover the source package, installed npm tarball, real Pi reloads, terminal UI coexistence, subagent children, and isolated live-provider smoke tests. This is a development build, not a tagged release. Active-installation cutover remains a separate step; other environments are managed independently.
+
+## Loadouts
+
+Exactly one named loadout is selected:
+
+- `full`: every bundled extension; the initial default.
+- `minimal`: the manager only.
+- Custom names: selected bundled IDs and external Pi package sources.
+
+Companion skills, prompts, themes, and bundled agent definitions follow their owning extension. Inactive packages remain installed but unloaded. Previously loaded conversation text is not retroactively removed. No stacking, environment overrides, credential management, or arbitrary settings management.
+
+| Command | Effect |
+| --- | --- |
+| `/steel list` | List loadouts and the selection. |
+| `/steel status` | Compare the selection with configured package declarations. |
+| `/steel use <name>` | Select and synchronize a loadout; reload when resources change. |
+| `/steel sync` | Restore the current loadout's declarations and missing installations. |
+
+The manager does not install, update, remove, or reconcile anything on startup. Downloads require confirmation; commands without a UI cannot approve them. Identical synchronization does not reload. Mutating commands are disabled in orchestrated children.
+
+### Custom loadouts
+
+Configuration is global-only at `<agent-dir>/steel.json` (normally `~/.pi/agent/steel.json`). After the first synchronization, add custom entries under `loadouts`, preserving the other fields. For a new configuration:
+
+```json
+{
+  "version": 1,
+  "active": "full",
+  "loadouts": {
+    "work": {
+      "bundled": ["pi-goal", "pi-subagent", "pi-read-before-write"],
+      "external": []
+    }
+  },
+  "managed": []
+}
+```
+
+Run `/steel use work`. Bundled IDs and their resources are recorded in [extensions.manifest.json](extensions.manifest.json). External entries use Pi package syntax, including pinned npm/Git sources and local package directories. Standalone file sources are rejected because Pi cannot disable them through package filters. Relative external paths resolve from the agent directory.
+
+`managed`, the optional `pending` ownership journal, and `incomplete` download records are internal state; do not edit them. Editing configuration alone does not change loaded resources: synchronize explicitly.
+
+### Ownership and failures
+
+- Unrelated manual packages and resource settings are preserved.
+- Selecting an already-manual external package is rejected rather than silently claiming it. Shared ownership is not supported.
+- Manually removing a selected member creates drift; `/steel sync` restores it. Remove it from the loadout for permanent exclusion.
+- Standalone installations of bundled extensions, direct duplicate entry paths, and project-scoped Steel declarations are rejected. Do not load the old individual installations alongside this package.
+- Managed external source spelling/version cannot be changed in place. This initial manager does not provide an update or ownership-release command.
+- Downloads finish before resource declarations change. Failures report completed downloads; journaled partial caches are repaired on retry rather than mistaken for successful installations.
+- Settings are revalidated after confirmation and merged under Pi 1.4's settings-file lock. Atomic replacement preserves the original file if writing fails. Editors that ignore locks, concurrent project edits, and simultaneous installation of the same package are not serialized by Steel.
+- An interrupted settings write retains an ownership journal for retry. A crashed process may leave `<agent-dir>/steel.lock`; remove that lock only after confirming no synchronization process remains.
+
+Pi's own package loading/update behavior is unchanged; the no-startup-reconciliation promise applies to the Steel manager.
+
+## Isolated local trial
+
+Requires Node.js 22+ and Pi; integration checks currently use Pi 1.4.0. From this checkout:
+
+```sh
+npm ci --ignore-scripts
+root="$PWD"
+sandbox="$(mktemp -d)"
+mkdir -p "$sandbox/home" "$sandbox/project"
+HOME="$sandbox/home" PI_CODING_AGENT_DIR="$sandbox/agent" pi install "$root"
+cd "$sandbox/project"
+HOME="$sandbox/home" PI_CODING_AGENT_DIR="$sandbox/agent" pi
+```
+
+This keeps personal settings, credentials, and extension configuration separate. Model use requires a separate login in the trial environment. Install the package directory, not just `index.ts` or a parent-only `-e` flag: subagent children discover the installed package through the inherited agent directory.
+
+Module READMEs retain predecessor usage and standalone installation references. Use the collection installation above when testing Steel; do not install those standalone sources alongside it.
+
+## Validation
+
+```sh
+npm run check         # TypeScript, manager/host/child/TUI tests, package contents
+npm run check:packed  # Install the real tarball without host peers; rerun integration tests
+```
+
+Module tests retain their separate toolchains. Bootstrap them once, then run:
+
+```sh
+for module in extensions/*; do
+  (
+    cd "$module"
+    if test -f package-lock.json; then
+      npm ci --ignore-scripts
+    else
+      npm install --ignore-scripts --package-lock=false
+    fi
+  )
+done
+npm run check:modules
+```
+
+Automated integration tests use temporary homes and local deterministic providers, not personal credentials or live model calls. The TUI smoke test needs a POSIX `script` PTY; additional predecessor TUI tests require `expect` and otherwise skip. Root CI installs both and runs source, module, and packed-install checks on Node.js 22, 24, and 26.
+
+Separate, manually authorized smoke tests verified OpenAI OAuth file work and worker delegation, plus OpenRouter API-key requests. These used temporary credentials/configuration copies; they are not part of CI.
+
+## Licenses
+
+The manager is MIT licensed. Bundled modules retain their own license notices, including Apache-2.0 for `pi-answer` and third-party MIT attribution. `pi-mindful` is a Pi adaptation of [Halluton's Mindful-Claude](https://github.com/halluton/Mindful-Claude); its upstream MIT notice is preserved. Source revisions and import differences are recorded in the manifest.

@@ -3,29 +3,30 @@
 ## Identity and direction
 
 - Public repository and product: `SteelDynamite/pi-steel`.
-- Local development workspace: `/projects/repos/pi-steel-forge`.
+- Local development workspace: `/projects/repos/pi-steel`.
 - Build one distributable Pi package containing independently selectable extensions and a loadout manager. Do not turn the collection into one coupled extension.
 - Optimize for a personal collection used across multiple environments, not a general package registry.
+- Use ordinary `AGENTS.md` guidance without repository-root or module-root locational ownership markers, mandatory source delegation, or repository-only working restrictions. Preserve bundled behavioral `SUBAGENTS.md` definitions, test fixtures, and locational-agent functionality for other projects.
 
 ## Approved loadout contract
 
 - Exactly one active named loadout; no stacking or overrides initially.
-- Loadouts select bundled and external extensions only. Managing skills, prompts, themes, arbitrary settings, or credentials is out of scope.
+- Loadouts select bundled and external extensions. Each extension owns its companion resources: enabling or disabling it also enables or disables its skills, prompts, bundled agent definitions, and other companions after reload. Do not expose independent resource selection initially. Preserve unrelated manually installed resources; prior conversation text is not retroactively removed. Arbitrary settings and credentials remain out of scope.
 - Users may install and remove unrelated extensions through ordinary Pi commands. Preserve those installations during synchronization and loadout changes.
 - The selected loadout owns its members. Manually removing a member creates drift; an explicit sync restores it. Permanent exclusion requires changing or selecting a loadout.
 - No automatic startup installation, update, removal, or reconciliation. Apply changes through explicit commands.
 - Prefer Pi's supported package APIs, resource filters, and controlled reload over a custom extension loader. Confirm current host behavior before implementation.
 - Keep inactive members installed but unloaded where supported. Report partial failures accurately and make repeated synchronization idempotent.
-- Storage format, command names, version pinning, scope precedence, and shared ownership with manually installed packages remain design questions, not implemented guarantees.
+- Initial manager choices are deliberately conservative: global `steel.json`, `/steel status|list|use|sync`, reserved `full`/`minimal`, native Pi source identity, and rejection of project Steel overrides or shared manual ownership. Managed source ref/spelling changes require explicit ownership cleanup; there is no update/adoption command. Treat these as the current implementation, not a promised long-term configuration API.
 
 ## Migration and retirement
 
 This is a new project identity, not a second permanent implementation. Migrate existing code and tests rather than rewrite working extensions.
 
-The predecessor is `/projects/repos/pi-extension-forge`. Until an approved inventory is recorded here, its `extensions.manifest.json` remains authoritative for managed source repository identities. Do not copy a second repository catalog into prose. The existing `.agents/docs/features/personal-extension-packs-manager.md` contains earlier research; the approved contract above supersedes its unresolved choice of architecture and scope.
+The predecessor is `/projects/repos/pi-extension-forge`; its `extensions.manifest.json` identifies the source repositories it manages. This project's `extensions.manifest.json` records migration baselines and bundled resource ownership. Do not copy either catalog into prose. The predecessor's `.agents/docs/features/personal-extension-packs-manager.md` tracks the migration handoff; current implementation constraints belong here.
 
 1. Inventory currently used extensions, external dependencies, tests, resources, licenses, and source revisions. Distinguish first-party migration candidates from external packages and archived or unused repositories. Do not assume the managed manifest alone describes everything the user uses.
-2. Agree on module layout and history/provenance preservation before imports. Preserve license and attribution obligations; public repository visibility is not a license grant.
+2. Import source snapshots, not Git history, into `extensions/<existing-package-name>/`. Record source revisions in `extensions.manifest.json` and preserve license and attribution obligations; public repository visibility is not a license grant.
 3. Import modules with their tests and supporting assets. Preserve existing behavior and intentional safety boundaries, including model-only exposure for the subagent tool.
 4. Implement and verify the loadout manager in an isolated Pi environment. Do not alter the user's active installation during development.
 5. Validate fresh bootstrap, loadout switching, unrelated-package preservation, external-package coexistence, idempotency, partial failure, and reload behavior. Prove the user's actual extension set works before cutover.
@@ -33,6 +34,35 @@ The predecessor is `/projects/repos/pi-extension-forge`. Until an approved inven
 7. Once pi-steel is proven and everything the user uses is migrated, retire the predecessor project and superseded first-party repositories. Deletion requires a verified inventory and explicit user approval at that time. Do not delete third-party repositories or assume every predecessor-associated repository is disposable.
 
 Keep the predecessor operational until cutover. Do not propagate its separate-repository architecture or startup synchronization into this monorepo by default. Any automatic supervisor must suppress behavior when `PI_ORCHESTRATED_CHILD=1`.
+
+## Inventory findings and import gates
+
+Observed 2026-10-31; recheck revisions and working trees immediately before importing.
+
+- This environment's 13 configured user packages match the predecessor manifest. All are first-party sources; no third-party package sources are configured here. Other environments remain unverified. The predecessor also has a project-local director extension, which is not a reusable collection member by default.
+- The recorded source revisions predate the approved, uncommitted source-boundary retirement changes (`SUBAGENTS.md` to `AGENTS.md` and the subagent boundary regression test). Preserve those changes; review worktree differences before importing rather than assuming pristine checkouts. Installed revisions match the recorded baselines except `pi-subagent`: installed `27e5a5fcff81c3bfdd197e91ad3b5bf7c3f4fc81`, source/remote `a25caf1eb1a025bd6990099275ff3a60f929a3ec`. The installed checkout lacks the model-only fix; reload alone cannot acquire a newer source revision. Installed `pi-chatgpt` and `pi-todo` lockfiles also have local changes. Do not copy installed trees over clean sources or silently reset these installations.
+- Import layout: intact source snapshots under `extensions/<existing-package-name>/`, with tests and package-local configuration retained. Run module checks from each module's directory; do not import Git histories.
+- Most modules expose `index.ts`; `pi-chatgpt` and `pi-read-before-write` expose `index.js`. The latter requires compiled `dist/` output. Do not assume a TypeScript entry glob or globally ignored build output is sufficient for distribution.
+- Ordinary runtime dependencies are `jiti` for reminder loading and `minimatch`/`yaml` for document manifests. The root distribution must supply them; nested package manifests alone do not install them. Keep host-provided Pi packages external. Development host versions and handwritten host types differ across modules; preserve isolated checks initially rather than blindly unifying dependencies.
+- Companion resources follow their owning extension: `pi-doc-manifests` ships three agent skills and templates; `pi-subagent` ships behavioral agent definitions and an `/implement` prompt. Test availability both with the owner enabled and disabled. Internal prompt assets, examples, and tests must also survive imports.
+- `pi-prompt-suggestions` finds an internal prompt using a package-root search that expects its local `package.json` and `src/index.ts`; preserve that relationship. `pi-subagent` resolves bundled agents relative to its source. Its tracked `.agents/subagents` symlink must not be imported under the no-`.agents/` rule. The imported boundary tests cover bundled-agent exclusion without that symlink or a module-root locational marker; do not restore either as a migration workaround.
+- Preserve individual license notices and attribution: `pi-answer` is Apache-2.0; the remaining packages declare MIT, including third-party copyright notices in some forks. The source `pi-mindful` lacks a license file; its imported snapshot now preserves Halluton's MIT notice from Mindful-Claude. The original creation request confirms that adaptation; public provenance is recorded in the manifest and module README without copying private session data. Review source snapshot contents before public imports; never import `.agents/`, credentials, sessions, ignored dependencies, or diagnostic artifacts.
+- Existing UI ownership needs coexistence checks: ChatGPT replaces the footer, prompt suggestions replaces the editor even in some apparently disabled configurations, and other modules own widgets/status/session names. Preserve behavior initially; do not fold unrelated fixes into relocation.
+- Subagent children launch the host CLI without inheriting arbitrary parent `-e` flags. Test that the intended loadout and safety extensions load in children, not only in the parent. Preserve child suppression and model-only exposure.
+- Standalone package tests, publishing workflows, installation links, and package-name assertions require deliberate root-package integration. Preserve module tests, but add validation of the actual single distributable; old per-module pack checks cannot establish it.
+- Preserve user configuration paths, persisted tool/custom-entry identities, and session references. Extension relocation does not authorize moving session storage or remapping absolute locational-agent session identities.
+
+## Current validation and integration
+
+- All 13 snapshots are imported. Manifest revisions identify source HEADs; `snapshots` records intentional working-tree and migration differences. Original source checkouts remain untouched.
+- The root npm allowlist needs recursive directory patterns for implementations and companions, ChatGPT's nested `extensions/`, reminder examples, and read-before-write's compiled `dist/`. The latter is explicitly unignored for Git. `check:pack` verifies every runtime asset and license, not just entrypoints.
+- `npm run check` covers manager behavior, real-host reload/resource ownership, a real model-issued subagent delegation, and TUI coexistence. `npm run check:packed` installs the actual tarball without host peers and repeats integration tests. Automated tests use temporary homes/configuration and deterministic local providers. Separately authorized live checks on 2026-10-31 passed OpenAI OAuth (`gpt-6.1-sol`) file work and real bundled-worker delegation, and OpenRouter API-key (`openai/gpt-4.1-mini`) completion. Temporary credential copies were removed; original auth remained byte-identical. Live-provider tests are not CI.
+- `npm run check:modules` uses each module's own dependencies and removes `PI_ORCHESTRATED_CHILD` only from test subprocesses so automation tests exercise their normal parent behavior. Bootstrap module dependencies as documented in README. With Expect available, the 13 module suites report 402 passes and zero skips; without it, three top-level tests skip their nested assertions. Root CI installs Expect and util-linux, then checks Node.js 22, 24, and 26.
+- Fresh sessions loading this collection's subagent implementation discover no collection locational agents, three bundled behavioral agents, and no manifest diagnostics. A separately installed predecessor subagent sees another copy's bundled definitions as locational candidates because exclusions are module-relative. Do not broadly exclude arbitrary `agents/` directories to conceal this cross-installation symptom; preserve legitimate locational discovery and avoid duplicate installations at cutover.
+- The manager validates newly selected external paths before admission and again after downloads; package-name collisions, direct bundled entries, second Steel installations, and manager symlink aliases must not bypass ownership checks. Reject external files because the host ignores their disabled filters. Journal incomplete installations before downloading; defer their potentially malformed package metadata until repair completes while retaining source-identity checks.
+- Operational package managers receive global settings only. Read project declarations separately for collision detection; never let untrusted project `npmCommand` reach package-path lookup or installation. Revalidate after confirmation and at commit.
+- `src/settings.ts` uses the public `SettingsStorage` snapshot contract and Pi 1.4's proper-lockfile protocol, then atomically replaces settings under that lock. Recheck compatibility when updating the host. Preserve unrelated current fields/packages; test cross-process contention and post-journal write failure. The global lock cannot serialize editors ignoring it, differently spelled symlink paths, independently locked project writes, or simultaneous same-package cache mutations.
+- The user explicitly delegated other-environment management to themselves. Remaining cutover gate: explicit recovery-backed cutover approval. Passing isolated tests does not authorize changing the active installation or deleting predecessors.
 
 ## Documentation and repository hygiene
 

@@ -1,0 +1,34 @@
+{
+  "name": "pi-system-reminders",
+  "version": "0.1.4",
+  "description": "Reactive system reminders for pi - steer agents with contextual nudges during long agentic flows",
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test test/*.test.cjs",
+    "typecheck": "tsc --noEmit",
+    "test:pack": "npm pack --dry-run --json"
+  },
+  "keywords": [
+    "pi-package"
+  ],
+  "files": [
+    "index.ts",
+    "pi-types.ts",
+    "examples",
+    "README.md"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "dependencies": {
+    "jiti": "^2.0.0"
+  },
+  "author": "michaelliv",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0"
+  }
+}

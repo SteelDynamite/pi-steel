@@ -1,0 +1,23 @@
+{
+  "name": "pi-mindful",
+  "version": "0.1.0",
+  "description": "Pi extension that turns agent working time into guided breathing.",
+  "type": "module",
+  "keywords": ["pi-package", "pi-extension", "mindfulness", "breathing"],
+  "license": "MIT",
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@types/node": "^20.19.0",
+    "typescript": "^5.8.3"
+  }
+}

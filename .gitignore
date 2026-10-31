@@ -1,6 +1,8 @@
 .agents/
 node_modules/
 dist/
+!extensions/pi-read-before-write/dist/
+!extensions/pi-read-before-write/dist/**
 coverage/
 .env
 .env.*

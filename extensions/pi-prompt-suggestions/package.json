@@ -1,0 +1,56 @@
+{
+  "name": "pi-prompt-suggestions",
+  "version": "0.1.2",
+  "description": "Pi extension that suggests a natural next prompt after an agent response.",
+  "type": "module",
+  "private": false,
+  "license": "MIT",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "prompt-suggestions"
+  ],
+  "homepage": "https://github.com/SteelDynamite/pi-prompt-suggestions#readme",
+  "bugs": {
+    "url": "https://github.com/SteelDynamite/pi-prompt-suggestions/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SteelDynamite/pi-prompt-suggestions.git"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "index.ts",
+    "src",
+    "docs",
+    "prompts",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "validate": "npm run typecheck && npm test && npm pack --dry-run"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "^0.75.5",
+    "@earendil-works/pi-tui": "^0.75.5",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.0.0"
+  }
+}

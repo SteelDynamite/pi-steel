@@ -1,0 +1,5 @@
+.pi/reminders/
+.pi/reminders-debug.log
+.pi/tasks/
+audit.md
+node_modules/

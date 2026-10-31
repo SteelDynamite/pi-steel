@@ -1,0 +1,85 @@
+{
+  "name": "pi-steel",
+  "version": "0.1.0",
+  "description": "A selectable collection of Pi extensions with explicit named loadouts",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "pi-package"
+  ],
+  "files": [
+    "index.ts",
+    "src/**/*.ts",
+    "extensions.manifest.json",
+    "extensions/*/*.ts",
+    "extensions/*/*.js",
+    "extensions/*/*.mjs",
+    "extensions/*/package.json",
+    "extensions/*/LICENSE*",
+    "extensions/*/README.md",
+    "extensions/*/src/**",
+    "extensions/*/dist/**",
+    "extensions/*/lib/**",
+    "extensions/*/extensions/**",
+    "extensions/*/skills/**",
+    "extensions/*/prompts/**",
+    "extensions/*/templates/**",
+    "extensions/*/examples/**",
+    "extensions/*/agents/**"
+  ],
+  "pi": {
+    "extensions": [
+      "index.ts",
+      "extensions/pi-answer/index.ts",
+      "extensions/pi-chatgpt/index.js",
+      "extensions/pi-doc-manifests/index.ts",
+      "extensions/pi-goal/index.ts",
+      "extensions/pi-mindful/index.ts",
+      "extensions/pi-prompt-suggestions/index.ts",
+      "extensions/pi-recap/index.ts",
+      "extensions/pi-read-before-write/index.js",
+      "extensions/pi-subagent/index.ts",
+      "extensions/pi-system-reminders/index.ts",
+      "extensions/pi-token-speed/index.ts",
+      "extensions/pi-transcript/index.ts",
+      "extensions/pi-todo/index.ts"
+    ],
+    "skills": [
+      "extensions/pi-doc-manifests/skills"
+    ],
+    "prompts": [
+      "extensions/pi-subagent/prompts"
+    ]
+  },
+  "scripts": {
+    "check": "npm run typecheck && npm test && npm run check:pack",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "check:pack": "node scripts/check-pack.mjs",
+    "check:packed": "npm run check:pack && node scripts/check-packed.mjs",
+    "check:modules": "node scripts/check-modules.mjs"
+  },
+  "dependencies": {
+    "jiti": "^2.6.1",
+    "minimatch": "^11.0.3",
+    "proper-lockfile": "^4.1.2",
+    "yaml": "^2.8.3"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.4.0",
+    "@types/node": "^24.0.0",
+    "@types/proper-lockfile": "^4.1.4",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

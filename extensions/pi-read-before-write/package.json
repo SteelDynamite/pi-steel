@@ -1,0 +1,52 @@
+{
+  "name": "pi-read-before-write",
+  "version": "0.1.3",
+  "description": "Pi extension that blocks stale edit/write operations when files changed since the agent last read them.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "index.js",
+    "dist",
+    "src",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SteelDynamite/pi-read-before-write.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SteelDynamite/pi-read-before-write/issues"
+  },
+  "homepage": "https://github.com/SteelDynamite/pi-read-before-write#readme",
+  "engines": {
+    "node": ">=22"
+  },
+  "pi": {
+    "extensions": [
+      "./index.js"
+    ]
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test test/index.test.mjs",
+    "test:pack": "node test/pack-smoke.mjs",
+    "audit:release": "npm audit --audit-level=moderate && npm run typecheck && npm test && npm run test:pack && npm publish --dry-run --access public",
+    "prepack": "npm run build"
+  },
+  "keywords": [
+    "pi",
+    "pi-package",
+    "pi-extension",
+    "read-before-write",
+    "stale-file-protection"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0"
+  }
+}

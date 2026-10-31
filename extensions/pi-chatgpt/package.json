@@ -1,0 +1,47 @@
+{
+  "name": "pi-chatgpt",
+  "version": "0.3.0",
+  "description": "ChatGPT Codex usage and speed mode support for pi",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/e2e/*.test.js",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "chatgpt",
+    "codex"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@earendil-works/pi-tui": "*"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SteelDynamite/pi-chatgpt.git"
+  },
+  "homepage": "https://github.com/SteelDynamite/pi-chatgpt#readme",
+  "bugs": {
+    "url": "https://github.com/SteelDynamite/pi-chatgpt/issues"
+  },
+  "files": [
+    "index.js",
+    "extensions",
+    "README.md",
+    "LICENSE"
+  ],
+  "devDependencies": {
+    "@types/node": "^24.12.3",
+    "prettier": "^3.8.3",
+    "typescript": "^6.0.3"
+  },
+  "pi": {
+    "extensions": [
+      "./index.js"
+    ],
+    "image": "https://github.com/patlux/pi-chatgpt-limit/releases/download/preview-assets/footer-preview.png"
+  }
+}

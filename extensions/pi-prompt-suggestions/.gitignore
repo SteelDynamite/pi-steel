@@ -1,0 +1,6 @@
+node_modules/
+dist/
+/.pi/
+next-suggestion-debug.log
+.env
+.DS_Store

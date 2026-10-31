@@ -1,0 +1,26 @@
+export const COLLAPSED_ITEM_COUNT = 10;
+export const NESTED_SUBAGENT_DETAIL_CAP = 20 * 1024;
+export const MAX_NESTED_SUBAGENTS_PER_RESULT = 16;
+export const MAX_NESTED_RENDER_DEPTH = 3;
+export const MAX_NESTED_RENDER_LINES = 80;
+export const MAX_SUBAGENT_DEPTH = 5;
+export const DEFAULT_CONTEXT_THRESHOLD = 0.6;
+export const SUBAGENT_STATE_ENTRY = "subagent-state";
+export const CURRENT_LOCATIONAL_ROOT_ENV = "PI_SUBAGENT_LOCATIONAL_ROOT";
+export const LOCATIONAL_ANCESTOR_STACK_ENV = "PI_SUBAGENT_LOCATIONAL_STACK";
+export const ADVERTISE_LOCATIONAL_AGENTS_ENV = "PI_SUBAGENT_ADVERTISE_LOCATIONAL_AGENTS";
+export const LOCATIONAL_PREFERRED_MODELS_ENV = "PI_SUBAGENT_LOCATIONAL_PREFERRED_MODELS";
+export const ORCHESTRATED_CHILD_ENV = "PI_ORCHESTRATED_CHILD";
+export const SUBAGENT_DEPTH_ENV = "PI_SUBAGENT_DEPTH";
+export const DEFAULT_KNOWN_TOOLS = new Set([
+	"bash",
+	"read",
+	"write",
+	"edit",
+	"ls",
+	"find",
+	"grep",
+	"rg",
+	"todo",
+	"subagent",
+]);

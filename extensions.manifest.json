@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "snapshotPolicy": {
+    "sourceRoot": "/projects/repos/pi-extension-forge/repos",
+    "content": "Source working-tree snapshots; revision is the verified source HEAD, not a guarantee of pristine content.",
+    "excluded": [".agents at every depth", ".git", "node_modules", "secrets", "diagnostic artifacts", ".github workflows (standalone CI/publishing is not the root distribution pipeline)"],
+    "validation": "Module checks use isolated local dependencies; standalone pack checks do not validate the root distribution."
+  },
+  "snapshots": {
+    "pi-answer": { "localChanges": ["Deleted root SUBAGENTS.md; imported replacement AGENTS.md"], "license": "Apache-2.0" },
+    "pi-chatgpt": { "localChanges": ["Deleted root SUBAGENTS.md; imported replacement AGENTS.md"], "license": "MIT", "omittedWorkflows": [".github/workflows/ci.yml", ".github/workflows/publish.yml"] },
+    "pi-doc-manifests": { "localChanges": [], "license": "MIT" },
+    "pi-goal": { "localChanges": ["Deleted root SUBAGENTS.md; imported replacement AGENTS.md"], "license": "MIT" },
+    "pi-mindful": {
+      "localChanges": ["Recovered upstream MIT license; documented adaptation attribution in README.md"],
+      "license": "MIT",
+      "upstream": {
+        "source": "https://github.com/halluton/Mindful-Claude",
+        "revision": "05c28e009aa2722034eb2d5deb863cc05b4e1acd",
+        "relationship": "Pi adaptation; the 2026-06-24 creation request explicitly named this project as its reference. Not a Git-history fork.",
+        "licenseSource": "https://github.com/halluton/Mindful-Claude/blob/05c28e009aa2722034eb2d5deb863cc05b4e1acd/LICENSE",
+        "copyright": "Copyright (c) 2026 Halluton"
+      }
+    },
+    "pi-prompt-suggestions": { "localChanges": ["Deleted root SUBAGENTS.md; imported replacement AGENTS.md"], "license": "MIT" },
+    "pi-read-before-write": { "localChanges": ["Deleted root SUBAGENTS.md; imported replacement AGENTS.md"], "license": "MIT", "requiredBuiltAssets": ["extensions/pi-read-before-write/dist"] },
+    "pi-recap": { "localChanges": [], "license": "MIT" },
+    "pi-subagent": { "localChanges": ["Deleted root SUBAGENTS.md; imported replacement AGENTS.md and adapted it to bundled discovery without a .agents symlink", "Preserved source boundary-retirement test adjustment; added monorepo bundled-agent exclusion regression", "Removed extra blank line at end of prompt.ts"], "license": "MIT" },
+    "pi-system-reminders": { "localChanges": ["Deleted root SUBAGENTS.md; imported replacement AGENTS.md"], "license": "MIT", "omittedWorkflows": [".github/workflows/ci.yml", ".github/workflows/release.yml"] },
+    "pi-todo": { "localChanges": ["Deleted root SUBAGENTS.md; imported replacement AGENTS.md"], "license": "MIT" },
+    "pi-token-speed": { "localChanges": [], "license": "MIT" },
+    "pi-transcript": { "localChanges": [], "license": "MIT" }
+  },
+  "extensions": [
+    { "id": "pi-answer", "source": "https://github.com/SteelDynamite/pi-answer.git", "revision": "21b8d046a3c6e48995fa0e67b6a6dc6817dd175a", "entry": "extensions/pi-answer/index.ts" },
+    { "id": "pi-chatgpt", "source": "https://github.com/SteelDynamite/pi-chatgpt.git", "revision": "39bb55190446488257ec8801dc76a08267ef93ef", "entry": "extensions/pi-chatgpt/index.js" },
+    { "id": "pi-doc-manifests", "source": "https://github.com/SteelDynamite/pi-doc-manifests.git", "revision": "b2b8fb6e885ba0ee0da4ed902568894d3328c1d2", "entry": "extensions/pi-doc-manifests/index.ts", "skills": ["extensions/pi-doc-manifests/skills"], "assets": ["extensions/pi-doc-manifests/templates"] },
+    { "id": "pi-goal", "source": "https://github.com/SteelDynamite/pi-goal.git", "revision": "5a2b0e87fe8ad0fd9eebfea01942e6302cecad42", "entry": "extensions/pi-goal/index.ts" },
+    { "id": "pi-mindful", "source": "https://github.com/SteelDynamite/pi-mindful.git", "revision": "8232f2c1ebbca44bc9ce37a0d8730e066072926d", "entry": "extensions/pi-mindful/index.ts" },
+    { "id": "pi-prompt-suggestions", "source": "https://github.com/SteelDynamite/pi-prompt-suggestions.git", "revision": "6284dea31b499ec402d8df7cb31cb78974af711b", "entry": "extensions/pi-prompt-suggestions/index.ts", "assets": ["extensions/pi-prompt-suggestions/prompts"] },
+    { "id": "pi-recap", "source": "https://github.com/SteelDynamite/pi-recap.git", "revision": "c62ec05d6cbb223e8d49a676430889dd929730f3", "entry": "extensions/pi-recap/index.ts" },
+    { "id": "pi-read-before-write", "source": "https://github.com/SteelDynamite/pi-read-before-write.git", "revision": "46bd67074d80bc89ebf26a60924e1c5006b3f6e2", "entry": "extensions/pi-read-before-write/index.js" },
+    { "id": "pi-subagent", "source": "https://github.com/SteelDynamite/pi-subagent.git", "revision": "a25caf1eb1a025bd6990099275ff3a60f929a3ec", "entry": "extensions/pi-subagent/index.ts", "prompts": ["extensions/pi-subagent/prompts"], "assets": ["extensions/pi-subagent/agents"] },
+    { "id": "pi-system-reminders", "source": "https://github.com/SteelDynamite/pi-system-reminders.git", "revision": "0b81f7c7c1afb1c68189a1c55c5a9bd36536b517", "entry": "extensions/pi-system-reminders/index.ts" },
+    { "id": "pi-token-speed", "source": "https://github.com/SteelDynamite/pi-token-speed.git", "revision": "3c7dd24abd010ac7fe3ebbf31bd3dac52bcf3ac2", "entry": "extensions/pi-token-speed/index.ts" },
+    { "id": "pi-transcript", "source": "https://github.com/SteelDynamite/pi-transcript.git", "revision": "10a5ed22c340c9ebd55413e2d3f966105f3a76fa", "entry": "extensions/pi-transcript/index.ts" },
+    { "id": "pi-todo", "source": "https://github.com/SteelDynamite/pi-todo.git", "revision": "c21133b39329dd7aa81df0db6db36c580b9b0061", "entry": "extensions/pi-todo/index.ts" }
+  ]
+}

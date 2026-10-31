@@ -1,0 +1,5 @@
+node_modules/
+package-lock.json
+.pi/reminders/
+.pi/reminders-debug.log
+.pi/tasks/

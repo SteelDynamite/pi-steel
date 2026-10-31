@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "acceptTab": true,
+  "display": "ghost",
+  "model": "openai/gpt-5.6-terra",
+  "maxTokens": 256,
+  "maxChars": 80
+}
