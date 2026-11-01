@@ -4,26 +4,32 @@ A personal Pi extension collection and loadout manager, distributed as one packa
 
 ## Status
 
-All 13 modules are imported. Checks cover the source package, installed npm tarball, real Pi reloads, terminal UI coexistence, subagent children, and isolated live-provider smoke tests. A recovery-backed local cutover has also passed. This is a development build, not a tagged release; other environments require their own installation and validation.
+All 13 modules are imported. Checks cover the source package, installed npm tarball, real Pi reloads, terminal UI coexistence, subagent children, and isolated live-provider smoke tests. A recovery-backed local cutover of the preceding build has also passed; that installation has not yet been switched to the shipped loadouts and automatic synchronization described below. This is a development build, not a tagged release; other environments require their own installation and validation.
 
 ## Loadouts
 
 Exactly one named loadout is selected:
 
-- `full`: every bundled extension; the initial default.
-- `minimal`: the manager only.
-- Custom names: selected bundled IDs and external Pi package sources.
+- `Everything` (default): all 13 bundled extensions plus external upstream observational memory.
+- `ChatBot`: system reminders, subagent, and external upstream observational memory.
+- Legacy `full` (all bundled extensions), `minimal` (manager only), and custom loadouts remain supported.
+
+Shipped selections come from [loadouts.json](loadouts.json), read dynamically rather than copied into local configuration. Pull or update Steel to receive definition changes; there is no background polling or package update.
 
 Companion skills, prompts, themes, and bundled agent definitions follow their owning extension. Inactive packages remain installed but unloaded. Previously loaded conversation text is not retroactively removed. No stacking, environment overrides, credential management, or arbitrary settings management.
 
 | Command | Effect |
 | --- | --- |
 | `/steel list` | List loadouts and the selection. |
-| `/steel status` | Compare the selection with configured package declarations. |
+| `/steel status` | Compare the selection with configured declarations; report pending reloads or sync failures. |
 | `/steel use <name>` | Select and synchronize a loadout; reload when resources change. |
 | `/steel sync` | Restore the current loadout's declarations and missing installations. |
 
-The manager does not install, update, remove, or reconcile anything on startup. Downloads require confirmation; commands without a UI cannot approve them. Identical synchronization does not reload. Mutating commands are disabled in orchestrated children.
+Steel synchronizes on each `session_start`, including reloads. Missing packages install without confirmation unless `PI_OFFLINE` is `1`, `true`, or `yes` (case-insensitive), which blocks automatic installation. Already installed packages are not updated. Orchestrated children (`PI_ORCHESTRATED_CHILD=1`) skip mutations.
+
+Automatic synchronization changes disk configuration, not the current extension set. TUI startup and status show the selected name and any pending reload. Until a new runtime starts, request-local model context warns that `/reload` or a Pi restart is needed and that new children may differ from their old parent. This warning neither starts a model turn nor persists in conversation history.
+
+Explicit `/steel use` and `/steel sync` still require confirmation for missing downloads; commands without a UI cannot approve them. They reload when changes are pending, including changes already saved by automatic synchronization. A true no-op does not reload. Failures appear in the TUI and model context, never as successful synchronization.
 
 ### Custom loadouts
 
@@ -32,7 +38,7 @@ Configuration is global-only at `<agent-dir>/steel.json` (normally `~/.pi/agent/
 ```json
 {
   "version": 1,
-  "active": "full",
+  "active": "Everything",
   "loadouts": {
     "work": {
       "bundled": ["pi-goal", "pi-subagent", "pi-read-before-write"],
@@ -45,13 +51,13 @@ Configuration is global-only at `<agent-dir>/steel.json` (normally `~/.pi/agent/
 
 Run `/steel use work`. Bundled IDs and their resources are recorded in [extensions.manifest.json](extensions.manifest.json). External entries use Pi package syntax, including pinned npm/Git sources and local package directories. Standalone file sources are rejected because Pi cannot disable them through package filters. Relative external paths resolve from the agent directory.
 
-`managed`, the optional `pending` ownership journal, and `incomplete` download records are internal state; do not edit them. Editing configuration alone does not change loaded resources: synchronize explicitly.
+`managed`, the optional `pending` ownership journal, and `incomplete` download records are internal state; do not edit them. Do not copy shipped definitions into `loadouts`. Editing configuration alone does not change loaded resources: run `/steel sync`, or let the next session start synchronize and then reload if prompted.
 
-### Memory preset
+### Observational memory
 
-[presets/memory/steel.json](presets/memory/steel.json) selects all bundled extensions plus upstream [pi-observational-memory](https://github.com/elpapi42/pi-observational-memory), tracking its unpinned Git default branch. It is an external package, not a vendored module or fork. The reserved `full` and `minimal` loadouts are unchanged.
+Both shipped loadouts include upstream [pi-observational-memory](https://github.com/elpapi42/pi-observational-memory), tracking its unpinned Git default branch. It remains an external package, not a vendored module or fork. [presets/memory/steel.json](presets/memory/steel.json) is a legacy compatibility snapshot, not the recommended shipped selection; use `Everything` or `ChatBot` instead.
 
-[presets/memory/settings.json](presets/memory/settings.json) supplies its configuration overrides:
+[presets/memory/settings.json](presets/memory/settings.json) supplies optional configuration overrides. Steel does not merge them automatically:
 
 | Threshold | Tokens |
 | --- | ---: |
@@ -65,24 +71,24 @@ These scale upstream's scheduling and pool defaults by `250000 / 81000`, rounded
 
 To apply during a deliberate installation or cutover:
 
-1. For a new Steel configuration, use the preset as `<agent-dir>/steel.json`. For an existing configuration, merge only `loadouts.memory`, preserving ownership journals and other loadouts.
-2. Merge the memory settings into `<agent-dir>/settings.json`'s `observational-memory` object, preserving unrelated settings and any memory model selection. Do not replace the whole settings file. These are explicit configuration overrides, not settings that Steel rewrites during synchronization.
-3. Reload Pi after the settings merge, then run `/steel use memory` and approve the external package download. Do not separately install it as a manually owned package. Start a fresh session after cutover; check `/steel status` and `/om:status`.
+1. Select `/steel use Everything` or `/steel use ChatBot`; approve any missing external package download. Do not separately install memory as a manually owned package.
+2. If desired, explicitly merge the memory settings into `<agent-dir>/settings.json`'s `observational-memory` object, preserving unrelated settings and any memory model selection. Do not replace the whole settings file.
+3. Reload Pi after the settings merge. Start a fresh session after a cutover; check `/steel status` and `/om:status`.
 
-The preset ships with Steel but is not applied or updated on startup. Initial installation resolves upstream's current default branch; later upstream changes require an explicit `pi update git:https://github.com/elpapi42/pi-observational-memory.git` and reload. `/steel sync` restores missing members; it does not update an already installed member. Steel's development lockfile records the tested Git artifact, not a runtime pin: it does not constrain what Pi downloads. The validated artifact is [`0fc37e6`](https://github.com/elpapi42/pi-observational-memory/commit/0fc37e67d977d1d76eab121786a319f5f07ec7d3); its declared `dist/index.ts` reproduces byte-for-byte from upstream's build and includes the unobserved-context safeguards. Future upstream revisions require revalidation. Switching away unloads memory without erasing its settings or session history. Background memory workers use the session model unless configured otherwise and incur additional model usage.
+The optional settings fragment and legacy configuration snapshot are never applied automatically. Initial installation resolves upstream's current default branch; later upstream changes require an explicit `pi update git:https://github.com/elpapi42/pi-observational-memory.git` and reload. `/steel sync` restores missing members; it does not update an already installed member. Steel's development lockfile records the tested Git artifact, not a runtime pin: it does not constrain what Pi downloads. The validated artifact is [`0fc37e6`](https://github.com/elpapi42/pi-observational-memory/commit/0fc37e67d977d1d76eab121786a319f5f07ec7d3); its declared `dist/index.ts` reproduces byte-for-byte from upstream's build and includes the unobserved-context safeguards. Future upstream revisions require revalidation. Switching away unloads memory without erasing its settings or session history. Background memory workers use the session model unless configured otherwise and incur additional model usage.
 
 ### Ownership and failures
 
 - Unrelated manual packages and resource settings are preserved.
 - Selecting an already-manual external package is rejected rather than silently claiming it. Shared ownership is not supported.
-- Manually removing a selected member creates drift; `/steel sync` restores it. Remove it from the loadout for permanent exclusion.
+- Manually removing a selected member creates drift; automatic synchronization or `/steel sync` restores it. Change the loadout for permanent exclusion.
 - Standalone installations of bundled extensions, direct duplicate entry paths, and project-scoped Steel declarations are rejected. Do not load the old individual installations alongside this package.
 - Managed external source spelling/version cannot be changed in place. This initial manager does not provide an update or ownership-release command.
 - Downloads finish before resource declarations change. Failures report completed downloads; journaled partial caches are repaired on retry rather than mistaken for successful installations.
 - Settings are revalidated after confirmation and merged under Pi 1.4's settings-file lock. Atomic replacement preserves the original file if writing fails. Editors that ignore locks, concurrent project edits, and simultaneous installation of the same package are not serialized by Steel.
-- An interrupted settings write retains an ownership journal for retry. A crashed process may leave `<agent-dir>/steel.lock`; remove that lock only after confirming no synchronization process remains.
+- An interrupted settings write retains an ownership journal for a later synchronization. Lock contention fails visibly: Steel neither steals locks nor runs retry loops. A crashed process may leave `<agent-dir>/steel.lock`; remove that lock only after confirming no synchronization process remains.
 
-Pi's own package loading/update behavior is unchanged; the no-startup-reconciliation promise applies to the Steel manager.
+Pi's own package loading/update behavior is unchanged.
 
 ## Isolated local trial
 

@@ -12,6 +12,11 @@ const active = () => {
 export default function (pi) {
   pi.on("session_start", (_event, ctx) => {
     record({ event: "start", active: active(), mode: ctx.mode });
+    const setStatus = ctx.ui.setStatus.bind(ctx.ui);
+    ctx.ui.setStatus = (key, value) => {
+      record({ event: "status", key, value });
+      return setStatus(key, value);
+    };
     for (const method of ["setFooter", "setEditorComponent", "setWidget"]) {
       const original = ctx.ui[method].bind(ctx.ui);
       ctx.ui[method] = (...args) => {
@@ -54,7 +59,8 @@ export default function (pi) {
       contextWindow: 128000, maxTokens: 1024, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
     streamSimple(model, context) {
       const hasTodo = context.messages.some(message => message.role === "toolResult" && message.toolName === "todo");
-      record({ event: "request", active: active(), hasTodo });
+      record({ event: "request", active: active(), hasTodo,
+        warning: context.messages.some(message => JSON.stringify(message).includes("Saved loadout changes are not applied")) });
       const stream = createAssistantMessageEventStream();
       const message = { role: "assistant", api: model.api, provider: model.provider, model: model.id,
         timestamp: Date.now(), content: [], stopReason: "stop",

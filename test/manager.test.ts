@@ -87,6 +87,7 @@ test("external members become inactive, remain installed, and can be removed fro
 
 test("failed installs do not change resource settings or claim convergence", async t => {
   const f = fixture(t);
+  f.file(f.configPath, JSON.stringify(f.config));
   f.config.active = "work";
   f.config.loadouts.work = { bundled: [], external: ["npm:new-one", "npm:new-two"] };
   let installed = false;

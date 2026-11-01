@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "default": "Everything",
+  "loadouts": {
+    "Everything": {
+      "bundled": [
+        "pi-answer",
+        "pi-chatgpt",
+        "pi-doc-manifests",
+        "pi-goal",
+        "pi-mindful",
+        "pi-prompt-suggestions",
+        "pi-recap",
+        "pi-read-before-write",
+        "pi-subagent",
+        "pi-system-reminders",
+        "pi-token-speed",
+        "pi-transcript",
+        "pi-todo"
+      ],
+      "external": ["git:https://github.com/elpapi42/pi-observational-memory.git"]
+    },
+    "ChatBot": {
+      "bundled": ["pi-system-reminders", "pi-subagent"],
+      "external": ["git:https://github.com/elpapi42/pi-observational-memory.git"]
+    }
+  }
+}

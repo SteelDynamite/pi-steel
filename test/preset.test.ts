@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
-import { parseConfig, select } from "../src/manager.js";
+import { parseConfig, readConfig, readLoadouts, saveConfig, select } from "../src/manager.js";
 
 const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const root = resolve(process.env.STEEL_TEST_PACKAGE_ROOT ?? sourceRoot);
@@ -15,6 +15,58 @@ const preset = JSON.parse(readFileSync(join(root, "presets/memory/steel.json"), 
 const settings = JSON.parse(readFileSync(join(root, "presets/memory/settings.json"), "utf8"));
 // Import only inert definitions; never resolve the caller's personal settings.
 const upstream = await import(pathToFileURL(join(upstreamRoot, "src/config.ts")).href);
+
+test("shipped selections default to Everything without persisting definitions", t => {
+  const dir = mkdtempSync(join(tmpdir(), "steel-loadouts-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const path = join(dir, "steel.json");
+  const config = readConfig(path, manifest.extensions);
+  assert.deepEqual(config, { version: 1, active: "Everything", loadouts: {}, managed: [] });
+  assert.equal(existsSync(path), false);
+  assert.deepEqual(select(config, manifest.extensions), select(parseConfig(preset, manifest.extensions), manifest.extensions));
+  config.active = "ChatBot";
+  assert.deepEqual(select(config, manifest.extensions), {
+    bundled: ["pi-system-reminders", "pi-subagent"],
+    external: ["git:https://github.com/elpapi42/pi-observational-memory.git"],
+  });
+  saveConfig(path, config);
+  assert.deepEqual(readConfig(path, manifest.extensions), config);
+  assert.deepEqual(JSON.parse(readFileSync(path, "utf8")).loadouts, {});
+  const shipped = JSON.parse(readFileSync(join(root, "loadouts.json"), "utf8"));
+  assert.deepEqual(readLoadouts(), shipped);
+  for (const name of ["Everything", "ChatBot", "full", "minimal"]) {
+    assert.throws(() => parseConfig({ ...config, loadouts: { [name]: { bundled: [], external: [] } } }, manifest.extensions), /Reserved/);
+  }
+  assert.deepEqual(select({ ...config, active: "full" }, manifest.extensions), { bundled: manifest.extensions.map((m: { id: string }) => m.id), external: [] });
+  assert.deepEqual(select({ ...config, active: "minimal" }, []), { bundled: [], external: [] });
+  assert.throws(() => select(config, []), /Unknown bundled ID/);
+});
+
+test("shipped definitions refresh from the module's package, not cwd or steel.json", async t => {
+  const dir = mkdtempSync(join(tmpdir(), "steel-loadouts-refresh-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  mkdirSync(join(dir, "src"));
+  for (const name of ["manager.ts", "settings.ts"]) copyFileSync(join(root, "src", name), join(dir, "src", name));
+  writeFileSync(join(dir, "package.json"), '{"type":"module"}');
+  symlinkSync(join(sourceRoot, "node_modules"), join(dir, "node_modules"), "dir");
+  const definitions = { version: 1, default: "Everything", loadouts: { Everything: { bundled: ["first"], external: [] as string[] }, ChatBot: { bundled: ["missing"], external: [] } } };
+  const path = join(dir, "loadouts.json");
+  writeFileSync(path, JSON.stringify(definitions));
+  const manager = await import(pathToFileURL(join(dir, "src/manager.ts")).href);
+  const members = [{ id: "first" }, { id: "second" }];
+  const config = manager.readConfig(join(dir, "steel.json"), members);
+  assert.deepEqual(manager.select(config, members).bundled, ["first"]);
+  definitions.loadouts.Everything = { bundled: ["second"], external: ["npm:updated"] };
+  writeFileSync(path, JSON.stringify(definitions));
+  assert.deepEqual(manager.select(config, members), definitions.loadouts.Everything);
+  assert.deepEqual(config.loadouts, {});
+  assert.throws(() => manager.select({ ...config, active: "ChatBot" }, members), /Unknown bundled ID/);
+  definitions.loadouts.Everything.bundled = ["second", "second"];
+  writeFileSync(path, JSON.stringify(definitions));
+  assert.throws(() => manager.select(config, members), /unique/);
+  writeFileSync(path, JSON.stringify({ ...definitions, loadouts: { "bad name": definitions.loadouts.Everything }, default: "bad name" }));
+  assert.throws(() => manager.select(config, members), /invalid shipped loadout/);
+});
 
 test("memory preset selects every bundled member and follows upstream's default branch", () => {
   const config = parseConfig(preset, manifest.extensions);

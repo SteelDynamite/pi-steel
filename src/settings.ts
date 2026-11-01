@@ -6,7 +6,7 @@ import lockfile from "proper-lockfile";
 /** Public SDK storage contract; no dependency on the host's private storage instance. */
 type SettingsStorage = Parameters<typeof SettingsManager.fromStorage>[0];
 
-/** Explicit sync only. The agent directory must already exist.
+/** Shared by session-start and explicit synchronization; the agent directory must already exist.
  * Compatibility: Pi 1.4.0 FileSettingsStorage uses lockSync(settingsPath,
  * { realpath: false }), hence `${settingsPath}.lock`, with proper-lockfile defaults.
  * This coordinates only with writers honoring that exact path/protocol, not editors,

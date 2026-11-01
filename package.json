@@ -11,6 +11,7 @@
     "index.ts",
     "src/**/*.ts",
     "extensions.manifest.json",
+    "loadouts.json",
     "presets/**/*.json",
     "extensions/*/*.ts",
     "extensions/*/*.js",

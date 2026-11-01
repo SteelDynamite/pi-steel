@@ -7,7 +7,7 @@ import test from "node:test";
 import { DefaultPackageManager, type ExtensionAPI, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import steel from "../index.js";
 
-test("isolated command host: no startup mutation, one reload, no-op sync, cancellation and child guards", async t => {
+test("isolated command host: registration is inert, pending sync reloads, cancellation and child guards", async t => {
   const dir = mkdtempSync(join(tmpdir(), "steel-command-"));
   const oldDir = process.env.PI_CODING_AGENT_DIR;
   const oldChild = process.env.PI_ORCHESTRATED_CHILD;
@@ -19,7 +19,7 @@ test("isolated command host: no startup mutation, one reload, no-op sync, cancel
     rmSync(dir, { recursive: true, force: true });
   });
   let handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> = async () => { throw new Error("not registered"); };
-  steel({ registerCommand: (_name, command) => { handler = command.handler; } } as ExtensionAPI);
+  steel({ on: (() => () => {}) as ExtensionAPI["on"], registerCommand: (_name, command) => { handler = command.handler; } } as ExtensionAPI);
   assert(!existsSync(join(dir, "steel.json")));
   assert(!existsSync(join(dir, "settings.json")));
   const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -30,6 +30,8 @@ test("isolated command host: no startup mutation, one reload, no-op sync, cancel
   const context = { cwd: dir, hasUI: true, ui: { notify: (message: string) => messages.push(message), confirm: async () => false }, reload: async () => { reloads++; } } as unknown as ExtensionCommandContext;
   await handler("use minimal", context);
   assert.equal(reloads, 1, messages.join("\n"));
+  // The mock reload does not replace the runtime; a fresh factory must clear pending state.
+  steel({ on: (() => () => {}) as ExtensionAPI["on"], registerCommand: (_name, command) => { handler = command.handler; } } as ExtensionAPI);
   await handler("sync", context);
   assert.equal(reloads, 1);
   await handler("use missing", context);
@@ -62,7 +64,7 @@ test("untrusted project npmCommand never executes, including status", async t =>
   mkdirSync(join(dir, ".pi"));
   writeFileSync(join(dir, ".pi", "settings.json"), JSON.stringify({ npmCommand: [process.execPath, "-e", `require('fs').writeFileSync(${JSON.stringify(marker)}, 'executed'); console.log(${JSON.stringify(dir)});`, "--"] }));
   let handler!: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
-  steel({ registerCommand: (_name, command) => { handler = command.handler; } } as ExtensionAPI);
+  steel({ on: (() => () => {}) as ExtensionAPI["on"], registerCommand: (_name, command) => { handler = command.handler; } } as ExtensionAPI);
   const messages: string[] = [];
   const ctx = { cwd: dir, hasUI: true, ui: { notify: (message: string) => messages.push(message), confirm: async () => false }, reload: async () => {} } as unknown as ExtensionCommandContext;
   await handler("status", ctx);
@@ -95,7 +97,7 @@ test("confirmation revalidates disk settings before invoking any installer", asy
   writeFileSync(join(dir, "settings.json"), JSON.stringify({ packages: [root] }));
   writeFileSync(join(dir, "steel.json"), JSON.stringify({ version: 1, active: "minimal", loadouts: { work: { bundled: [], external: [source] } }, managed: [] }));
   let handler!: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
-  steel({ registerCommand: (_name, command) => { handler = command.handler; } } as ExtensionAPI);
+  steel({ on: (() => () => {}) as ExtensionAPI["on"], registerCommand: (_name, command) => { handler = command.handler; } } as ExtensionAPI);
   const messages: string[] = [];
   const ctx = { cwd: dir, hasUI: true, ui: { notify: (message: string) => messages.push(message), confirm: async () => {
     writeFileSync(join(dir, "settings.json"), JSON.stringify({ packages: [root, source] }));

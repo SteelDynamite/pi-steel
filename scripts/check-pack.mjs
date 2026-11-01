@@ -14,7 +14,14 @@ for (const path of files) {
   assert(!/(^|\/)(node_modules|test|tests|\.agents|\.github)(\/|$)/.test(path), `Forbidden packed path: ${path}`);
   assert(!/\.(tgz|log|tsbuildinfo)$/.test(path), `Artifact: ${path}`);
 }
-for (const path of ['index.ts', 'src/manager.ts', 'extensions.manifest.json', 'LICENSE', 'presets/memory/steel.json', 'presets/memory/settings.json']) assert(files.has(path), `Missing ${path}`);
+for (const path of ['index.ts', 'src/manager.ts', 'extensions.manifest.json', 'loadouts.json', 'LICENSE', 'presets/memory/steel.json', 'presets/memory/settings.json']) assert(files.has(path), `Missing ${path}`);
+const loadouts = JSON.parse(readFileSync(new URL('../loadouts.json', import.meta.url), 'utf8'));
+assert.equal(loadouts.version, 1);
+assert.equal(loadouts.default, 'Everything');
+assert.deepEqual(Object.keys(loadouts.loadouts), ['Everything', 'ChatBot']);
+assert.deepEqual(loadouts.loadouts.Everything.bundled, registry.extensions.map(member => member.id));
+assert.deepEqual(loadouts.loadouts.ChatBot.bundled, ['pi-system-reminders', 'pi-subagent']);
+for (const loadout of Object.values(loadouts.loadouts)) assert.deepEqual(loadout.external, ['git:https://github.com/elpapi42/pi-observational-memory.git']);
 assert(![...files].some(path => path.includes('pi-observational-memory')), 'External memory package must not be bundled');
 assert(![...files].some(path => path.startsWith('extensions/pi-subagent/prompts/')), 'Subagent must not bundle prompt templates');
 assert.deepEqual(manifest.pi.extensions, ['index.ts', ...registry.extensions.map(member => member.entry)]);

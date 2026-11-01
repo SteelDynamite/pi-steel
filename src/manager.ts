@@ -15,7 +15,7 @@ export interface Member {
   assets?: string[];
 }
 export interface Loadout { bundled: string[]; external: string[] }
-/** steel.json is global-only. full/minimal are reserved; custom loadouts require both arrays.
+/** steel.json is global-only. Shipped names and full/minimal are reserved; custom loadouts require both arrays.
  * External sources use Pi syntax; relative local paths resolve from getAgentDir().
  * `managed` is internal ownership state, not user-selected resources; do not edit it.
  * Never infer ownership from installation alone. */
@@ -35,17 +35,32 @@ const strings = (value: unknown): value is string[] => Array.isArray(value) && v
 function keys(value: Record<string, unknown>, allowed: string[]): void {
   if (Object.keys(value).some(k => !allowed.includes(k))) throw new Error("Unknown configuration field");
 }
+/** Read on demand so package updates change definitions, not local ownership state. */
+export function readLoadouts(): { version: 1; default: string; loadouts: Record<string, Loadout> } {
+  const value: unknown = JSON.parse(readFileSync(new URL("../loadouts.json", import.meta.url), "utf8"));
+  if (!record(value)) throw new Error("loadouts.json must be an object");
+  keys(value, ["version", "default", "loadouts"]);
+  if (value.version !== 1 || typeof value.default !== "string" || !record(value.loadouts) || !Object.hasOwn(value.loadouts, value.default)) throw new Error("Invalid shipped loadouts version, default, or loadouts");
+  for (const name of Object.keys(value.loadouts)) {
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(name) || ["full", "minimal"].includes(name)) throw new Error(`Reserved or invalid shipped loadout: ${name}`);
+  }
+  return value as { version: 1; default: string; loadouts: Record<string, Loadout> };
+}
+function validateLoadout(name: string, loadout: unknown, members: Member[]): asserts loadout is Loadout {
+  if (!record(loadout)) throw new Error(`Invalid loadout: ${name}`);
+  keys(loadout, ["bundled", "external"]);
+  if (!strings(loadout.bundled) || !strings(loadout.external)) throw new Error(`Loadout ${name} requires unique bundled/external string arrays`);
+  for (const id of loadout.bundled) if (!members.some(m => m.id === id)) throw new Error(`Unknown bundled ID: ${id}`);
+}
 export function parseConfig(value: unknown, members: Member[]): Config {
   if (!record(value)) throw new Error("steel.json must be an object");
   keys(value, ["version", "active", "loadouts", "managed", "pending", "incomplete"]);
   if (value.incomplete !== undefined && !strings(value.incomplete)) throw new Error("incomplete must be a unique source array");
   if (value.version !== 1 || typeof value.active !== "string" || !record(value.loadouts)) throw new Error("Invalid steel.json version, active, or loadouts");
+  const shipped = readLoadouts();
   for (const [name, loadout] of Object.entries(value.loadouts)) {
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(name) || ["full", "minimal"].includes(name)) throw new Error(`Reserved or invalid loadout: ${name}`);
-    if (!record(loadout)) throw new Error(`Invalid loadout: ${name}`);
-    keys(loadout, ["bundled", "external"]);
-    if (!strings(loadout.bundled) || !strings(loadout.external)) throw new Error(`Loadout ${name} requires unique bundled/external string arrays`);
-    for (const id of loadout.bundled) if (!members.some(m => m.id === id)) throw new Error(`Unknown bundled ID: ${id}`);
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(name) || ["full", "minimal"].includes(name) || Object.hasOwn(shipped.loadouts, name)) throw new Error(`Reserved or invalid loadout: ${name}`);
+    validateLoadout(name, loadout, members);
   }
   const managed = value.managed ?? [];
   if (!Array.isArray(managed) || (value.pending !== undefined && !Array.isArray(value.pending))) throw new Error("managed/pending must be arrays");
@@ -59,7 +74,7 @@ export function parseConfig(value: unknown, members: Member[]): Config {
   return config;
 }
 export function readConfig(path: string, members: Member[]): Config {
-  return existsSync(path) ? parseConfig(JSON.parse(readFileSync(path, "utf8")), members) : { version: 1, active: "full", loadouts: {}, managed: [] };
+  return existsSync(path) ? parseConfig(JSON.parse(readFileSync(path, "utf8")), members) : { version: 1, active: readLoadouts().default, loadouts: {}, managed: [] };
 }
 export function saveConfig(path: string, config: Config): void {
   const temp = `${path}.${process.pid}.tmp`;
@@ -69,8 +84,12 @@ export function saveConfig(path: string, config: Config): void {
 export function select(config: Config, members: Member[]): Loadout {
   if (config.active === "full") return { bundled: members.map(m => m.id), external: [] };
   if (config.active === "minimal") return { bundled: [], external: [] };
-  if (!Object.hasOwn(config.loadouts, config.active)) throw new Error(`Unknown loadout: ${config.active}`);
-  return config.loadouts[config.active]!;
+  const shipped = readLoadouts();
+  const loadouts = Object.hasOwn(shipped.loadouts, config.active) ? shipped.loadouts : config.loadouts;
+  if (!Object.hasOwn(loadouts, config.active)) throw new Error(`Unknown loadout: ${config.active}`);
+  const loadout = loadouts[config.active];
+  validateLoadout(config.active, loadout, members);
+  return loadout;
 }
 const resourceTypes = ["extensions", "skills", "prompts", "themes"] as const;
 export function bundledFilters(source: string, members: Member[], enabled: string[]): PackageSource {

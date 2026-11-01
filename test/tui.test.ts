@@ -39,6 +39,7 @@ test("real TUI: all 13 modules, local model, footer/editor/widgets, minimal → 
     const settingsPath = join(agentDir, "settings.json");
     writeFileSync(settingsPath, JSON.stringify({ packages: [manual, root], defaultProvider: "steel-tui-local", defaultModel: "fixture",
       theme: "dark", compaction: { enabled: false }, retry: { enabled: false } }));
+    writeFileSync(join(agentDir, "steel.json"), JSON.stringify({ version: 1, active: "full", loadouts: {}, managed: [] }));
     const members = JSON.parse(readFileSync(join(root, "extensions.manifest.json"), "utf8")).extensions as { id: string; entry: string }[];
     assert.equal(members.length, 13);
     const reportPath = join(home, "report.jsonl");
@@ -70,6 +71,10 @@ test("real TUI: all 13 modules, local model, footer/editor/widgets, minimal → 
     };
     const send = (text: string) => child!.stdin!.write(`${text}\r`);
     await wait("full editor and footer", () => ["setEditorComponent", "setFooter"].every(owner => events().some(event => event.event === "render" && event.owner === owner)));
+    await wait("startup selected-name and pending warning", () => /Steel loadout: full/.test(plain(transcript)) && /Saved changes require \/reload/.test(plain(transcript)));
+    assert(events().some(event => event.event === "status" && /Steel: full.*reload required/.test(event.value)), "startup status identifies selected loadout and pending reload");
+    assert.equal(events().filter(event => event.event === "start").length, 1, "startup must not auto reload");
+    assert.equal(events().filter(event => event.event === "request").length, 0, "startup warning must not trigger a model turn");
     send("/tui-probe");
     await wait("initial full probe", () => events().some(event => event.event === "probe" && event.active === "full"));
     send("Exercise the local TUI fixture.");
@@ -80,6 +85,7 @@ test("real TUI: all 13 modules, local model, footer/editor/widgets, minimal → 
     for (const member of members) assert(plain(transcript).includes(`/extensions/${member.id}`), `${member.id} loaded in the real TUI`);
     assert(events().some(event => event.event === "widget" && event.owner === "pi-mindful"), "mindful working widget must be displayed");
     assert.equal(events().filter(event => event.event === "request").length, 2, "one run: todo tool call and final response only");
+    assert(events().filter(event => event.event === "request").every(event => event.warning), "pending warning reaches every provider request without persisting a turn");
 
     for (const active of ["minimal", "full"]) {
       const starts = events().filter(event => event.event === "start").length;

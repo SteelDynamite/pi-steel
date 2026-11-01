@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -11,12 +11,12 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const root = resolve(process.env.STEEL_TEST_PACKAGE_ROOT ?? sourceRoot);
+let root = resolve(process.env.STEEL_TEST_PACKAGE_ROOT ?? sourceRoot);
 
 // A separate process sets HOME before host/modules cache configuration paths. No user
 // settings, credentials, sessions, network requests, or model turns enter this test.
 if (process.env.STEEL_HOST_TEST_CHILD !== "1") {
-  test("real host: full → minimal → custom, ownership, reload, and fresh-project discovery", { timeout: 120_000 }, () => {
+  test("real host: shipped selections, startup sync, two-phase definition reload, and resource ownership", { timeout: 120_000 }, () => {
     const home = mkdtempSync(join(tmpdir(), "steel-host-"));
     try {
       const result = spawnSync(process.execPath, ["--import", "tsx", fileURLToPath(import.meta.url)], {
@@ -25,11 +25,14 @@ if (process.env.STEEL_HOST_TEST_CHILD !== "1") {
           PATH: process.env.PATH, HOME: home, TMPDIR: tmpdir(),
           PI_CODING_AGENT_DIR: join(home, ".pi", "agent"),
           STEEL_HOST_TEST_CHILD: "1", STEEL_TEST_PACKAGE_ROOT: root, NO_COLOR: "1",
+          NODE_OPTIONS: `--import=${join(sourceRoot, "test/fixtures/child-network-guard.mjs")}`,
+          STEEL_NETWORK_ATTEMPTS: join(home, "network-attempts"),
         },
         encoding: "utf8", timeout: 110_000,
       });
       assert.equal(result.error, undefined, String(result.error));
       assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+      assert(!existsSync(join(home, "network-attempts")), existsSync(join(home, "network-attempts")) ? readFileSync(join(home, "network-attempts"), "utf8") : "host checks must remain offline");
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -42,7 +45,9 @@ function snapshot(directory: string): Record<string, string> {
   const files: Record<string, string> = {};
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name);
-    if (entry.isDirectory()) {
+    if (entry.isSymbolicLink()) {
+      files[entry.name] = `symlink:${readlinkSync(path)}`;
+    } else if (entry.isDirectory()) {
       for (const [name, contents] of Object.entries(snapshot(path))) files[join(entry.name, name)] = contents;
     } else files[entry.name] = readFileSync(path).toString("base64");
   }
@@ -52,6 +57,11 @@ function snapshot(directory: string): Record<string, string> {
 async function exerciseHost(): Promise<void> {
   const home = process.env.HOME!;
   const agentDir = process.env.PI_CODING_AGENT_DIR!;
+  const packageRoot = root;
+  root = join(home, "steel");
+  mkdirSync(root);
+  for (const path of ["index.ts", "src", "package.json", "extensions.manifest.json", "loadouts.json", "extensions", "presets"]) cpSync(join(packageRoot, path), join(root, path), { recursive: true, filter: path => !/(^|\/)(node_modules|\.agents|\.git)(\/|$)/.test(relative(packageRoot, path)) });
+  symlinkSync(existsSync(join(packageRoot, "node_modules")) ? join(packageRoot, "node_modules") : dirname(packageRoot), join(root, "node_modules"), "dir");
   const cwd = join(home, "fresh-project");
   mkdirSync(agentDir, { recursive: true });
   mkdirSync(cwd);
@@ -81,6 +91,10 @@ async function exerciseHost(): Promise<void> {
   cpSync(join(sourceRoot, "node_modules/pi-observational-memory"), packagePaths.memory, { recursive: true });
   const memoryPreset = JSON.parse(readFileSync(join(root, "presets/memory/steel.json"), "utf8"));
   const memorySettings = JSON.parse(readFileSync(join(root, "presets/memory/settings.json"), "utf8"));
+  const upstreamSource = "git:https://github.com/elpapi42/pi-observational-memory.git";
+  const upstreamPath = join(agentDir, "git/github.com/elpapi42/pi-observational-memory");
+  cpSync(packagePaths.memory, upstreamPath, { recursive: true });
+  const disabledUpstream = { source: upstreamSource, extensions: [], skills: [], prompts: [], themes: [] };
   const settingsPath = join(agentDir, "settings.json");
   const configPath = join(agentDir, "steel.json");
   const hostPackage = JSON.parse(readFileSync(join(getPackageDir(), "package.json"), "utf8"));
@@ -89,7 +103,8 @@ async function exerciseHost(): Promise<void> {
   assert.equal(bootstrap.status, 0, `${bootstrap.stdout}\n${bootstrap.stderr}`);
   const installedSettings = JSON.parse(readFileSync(settingsPath, "utf8"));
   assert.deepEqual(installedSettings.packages.map((source: string) => resolve(agentDir, source)), [root], "fresh Pi bootstrap declares the entire package relative to its settings");
-  writeFileSync(settingsPath, JSON.stringify({ ...installedSettings, packages: [...installedSettings.packages, packagePaths.manual], theme: "dark", compaction: { enabled: false }, retry: { enabled: false }, ...memorySettings }));
+  writeFileSync(settingsPath, JSON.stringify({ ...installedSettings, packages: [...installedSettings.packages, packagePaths.manual, disabledUpstream], theme: "dark", compaction: { enabled: false }, retry: { enabled: false }, ...memorySettings }));
+  writeFileSync(configPath, JSON.stringify({ version: 1, active: "full", loadouts: {}, managed: [disabledUpstream] }));
   const modelRuntime = await ModelRuntime.create({
     authPath: join(agentDir, "auth.json"), modelsPath: join(agentDir, "models.json"),
     modelsStorePath: join(agentDir, "models-cache.json"), refreshOnCreate: false, allowModelNetwork: false,
@@ -121,7 +136,14 @@ async function exerciseHost(): Promise<void> {
         notify: message => { notices.push(message); }, confirm: async () => true,
       },
     });
-    assert.deepEqual(snapshot(home), beforeStartup, "factory/session startup must not mutate settings, installations, or the project");
+    assert.notDeepEqual(snapshot(home), beforeStartup, "startup saves selected resource filters");
+    assert.equal(reloads, 0, "lifecycle never reloads");
+    const warning = await session.extensionRunner.emitContext([]);
+    assert.match(JSON.stringify(warning), /steel-loadout-warning.*not applied/);
+    await session.prompt("/steel sync");
+    assert.equal(reloads, 1, "explicit sync applies pending runtime even when saved filters match");
+    assert.deepEqual(await session.extensionRunner.emitContext([]), []);
+    reloads = 0;
     const members = JSON.parse(readFileSync(join(root, "extensions.manifest.json"), "utf8")).extensions as { id: string; entry: string }[];
     assert.equal(members.length, 13);
     await checkState(session, loader, members.map(member => member.entry), true, true, false, errors);
@@ -181,6 +203,25 @@ async function exerciseHost(): Promise<void> {
       }
     }
     assert.deepEqual(snapshot(packagePaths.memory), memoryInstalled, "switching never modifies the upstream package");
+    for (const active of ["Everything", "ChatBot"]) {
+      await session.prompt(`/steel use ${active}`);
+      const ids = active === "Everything" ? members.map(member => member.id) : ["pi-system-reminders", "pi-subagent"];
+      await checkState(session, loader, members.filter(member => ids.includes(member.id)).map(member => member.entry), active === "Everything", true, false, errors);
+      assert(session.getActiveToolNames().includes("recall"), "shipped Git memory loads from exact-identity offline cache");
+      assert.equal(JSON.parse(readFileSync(configPath, "utf8")).loadouts[active], undefined, "shipped definitions are not copied into user config");
+    }
+    const definitionsPath = join(root, "loadouts.json");
+    const definitions = JSON.parse(readFileSync(definitionsPath, "utf8"));
+    definitions.loadouts.ChatBot.bundled.push("pi-todo");
+    writeFileSync(definitionsPath, JSON.stringify(definitions));
+    await session.reload();
+    assert(!session.getActiveToolNames().includes("todo"), "first reload still loads saved filters before startup synchronization");
+    assert.match(JSON.stringify(await session.extensionRunner.emitContext([])), /not applied/);
+    assert(JSON.parse(readFileSync(settingsPath, "utf8")).packages.find((entry: any) => entry.source && resolve(agentDir, entry.source) === root).extensions.includes("+extensions/pi-todo/index.ts"));
+    await session.reload();
+    assert(session.getActiveToolNames().includes("todo"), "second reload applies changed shipped definition");
+    assert.deepEqual(await session.extensionRunner.emitContext([]), []);
+    await checkState(session, loader, members.filter(member => definitions.loadouts.ChatBot.bundled.includes(member.id)).map(member => member.entry), false, true, false, errors);
     await session.prompt("/steel use custom");
     assert.deepEqual(snapshot(packagePaths.external), externalInstalled, "inactive external package remains installed and unchanged");
     assert.deepEqual(snapshot(packagePaths.manual), manualInstalled);
