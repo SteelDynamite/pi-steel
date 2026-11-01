@@ -2,7 +2,7 @@
 
 Read `README.md` for product behavior, installation, and validation commands. This checkout is not a locational-agent root. Keep `agents/*/SUBAGENTS.md` as behavioral definitions. Bundled discovery and exclusion use this module's `agents/` directory; do not add a `.agents/subagents` symlink.
 
-Keep delegation foreground-managed: each `subagent` call launches one isolated Pi child, shows progress, waits, and returns one result. Built-in `bash` owns shell commands and Pi owns concurrent sibling tool execution. Do not add detached jobs, background polling, or command execution to this extension. Preserve `exposure: "model-only"` for direct tool rendering and progress.
+Keep delegation foreground-managed: each `subagent` call launches one isolated Pi child, shows progress, waits, and returns one result. Built-in `bash` owns shell commands and Pi owns concurrent sibling tool execution. Do not bundle or export slash-command prompt templates; behavioral definitions and internal delegation prompts remain part of the extension. Do not add detached jobs, background polling, or command execution to this extension. Preserve `exposure: "model-only"` for direct tool rendering and progress.
 
 ## Locational opt-in
 

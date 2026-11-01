@@ -16,6 +16,7 @@ for (const path of files) {
 }
 for (const path of ['index.ts', 'src/manager.ts', 'extensions.manifest.json', 'LICENSE', 'presets/memory/steel.json', 'presets/memory/settings.json']) assert(files.has(path), `Missing ${path}`);
 assert(![...files].some(path => path.includes('pi-observational-memory')), 'External memory package must not be bundled');
+assert(![...files].some(path => path.startsWith('extensions/pi-subagent/prompts/')), 'Subagent must not bundle prompt templates');
 assert.deepEqual(manifest.pi.extensions, ['index.ts', ...registry.extensions.map(member => member.entry)]);
 for (const type of ['skills', 'prompts']) assert.deepEqual(manifest.pi[type] ?? [], registry.extensions.flatMap(member => member[type] ?? []));
 for (const member of registry.extensions) {

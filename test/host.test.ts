@@ -233,7 +233,8 @@ async function checkState(session: AgentSession, loader: DefaultResourceLoader, 
   const prompts = loader.getPrompts().prompts.map(prompt => prompt.name);
   const themes = loader.getThemes().themes.map(theme => theme.name);
   for (const name of ["doc-manifests-designer", "doc-manifests-maintainer", "doc-manifests-session-reviewer"]) assert.equal(skills.includes(name), docs, name);
-  assert.equal(prompts.includes("implement"), agents);
+  assert.equal(prompts.includes("implement"), false, "subagent must not export workflow prompts");
+  assert.deepEqual(loader.getPrompts().prompts.filter(prompt => prompt.filePath.includes("/pi-subagent/")), []);
   for (const [name, enabled] of [["manual", true], ["external", external]] as const) {
     assert.equal(skills.includes(name), enabled, `${name} skill`);
     assert.equal(prompts.includes(name), enabled, `${name} prompt`);

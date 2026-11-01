@@ -1,6 +1,6 @@
 # Pi Subagent
 
-Foreground-managed behavioral Pi-agent delegation, with optional locational agents. Each `subagent` call runs one isolated Pi child and returns its result; built-in `bash` owns shell execution.
+Foreground-managed behavioral Pi-agent delegation, with optional locational agents. Each `subagent` call runs one isolated Pi child and returns its result; built-in `bash` owns shell execution. This extension exports no slash-command prompt templates.
 
 ## Features
 
@@ -20,9 +20,6 @@ ln -sf "$(pwd)/index.ts" ~/.pi/agent/extensions/pi-subagent/index.ts
 
 mkdir -p ~/.pi/agent/agents
 for d in agents/*; do ln -sfn "$(pwd)/$d" ~/.pi/agent/agents/$(basename "$d"); done
-
-mkdir -p ~/.pi/agent/prompts
-ln -sf "$(pwd)/prompts/implement.md" ~/.pi/agent/prompts/implement.md
 ```
 
 ### Runtime requirements

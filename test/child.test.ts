@@ -91,7 +91,8 @@ export default function(pi) {
     assert(commands.includes("manual"), "manual prompt survives filtering");
     assert(commands.includes("skill:manual"), "manual skill survives filtering");
     assert(!commands.includes("parent-only"));
-    for (const name of ["implement", "goal", "mindful", "recap"]) assert(commands.includes(name), name);
+    assert(!commands.includes("implement"), "subagent must not export workflow prompts to children");
+    for (const name of ["goal", "mindful", "recap"]) assert(commands.includes(name), name);
     for (const name of ["doc-manifests-designer", "doc-manifests-maintainer", "doc-manifests-session-reviewer"]) assert.equal(commands.includes(`skill:${name}`), memory, name);
     assert.equal(child.tools.some((tool: { name: string }) => tool.name === "todo"), memory, "bundled selection reaches child");
     assert.equal(commands.includes("om:status"), memory, "external memory reaches child");
