@@ -9,7 +9,7 @@
   "snapshots": {
     "pi-answer": { "localChanges": ["Deleted root SUBAGENTS.md; imported replacement AGENTS.md"], "license": "Apache-2.0" },
     "pi-chatgpt": { "localChanges": ["Deleted root SUBAGENTS.md; imported replacement AGENTS.md"], "license": "MIT", "omittedWorkflows": [".github/workflows/ci.yml", ".github/workflows/publish.yml"] },
-    "pi-doc-manifests": { "localChanges": [], "license": "MIT" },
+    "pi-doc-manifests": { "localChanges": ["Replaced Decisions/Policies initialization templates with unnumbered, flexible Standards; added opt-in agent-guided migration while preserving existing categories"], "license": "MIT" },
     "pi-goal": { "localChanges": ["Deleted root SUBAGENTS.md; imported replacement AGENTS.md"], "license": "MIT" },
     "pi-mindful": {
       "localChanges": ["Recovered upstream MIT license; documented adaptation attribution in README.md"],

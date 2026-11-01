@@ -6,7 +6,7 @@ description: "Create or substantially revise a repeatable project procedure or t
 # Runbook Documents
 
 1. Read `.agents/docs/RUNBOOKS.md` completely, then search `.agents/docs/runbooks/` for an existing procedure.
-2. Document work a person or agent actually performs; automatic behavior belongs in source or a decision document.
+2. Document work a person or agent actually performs; automatic behavior belongs in source or an explanatory standard.
 3. Update the existing procedure when it applies. Otherwise use a uniquely named kebab-case file.
 4. Make steps executable, verification observable, and troubleshooting specific to likely failures.
 5. Validate the result against `RUNBOOKS.md`.

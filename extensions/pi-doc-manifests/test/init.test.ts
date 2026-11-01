@@ -11,8 +11,8 @@ import { CATEGORIES, initializeProject, SKILLS } from "../src/init";
 import { buildManifest } from "../src/manifest";
 
 const execFileAsync = promisify(execFile);
-const expectedCategories = ["decisions", "features", "glossary", "goals", "lessons", "policies", "runbooks", "techdebt"];
-const expectedSkills = ["doc-decision-creator", "doc-feature-creator", "doc-glossary-creator", "doc-goal-creator", "doc-lesson-creator", "doc-policy-creator", "doc-runbook-creator", "doc-techdebt-creator"];
+const expectedCategories = ["features", "glossary", "goals", "lessons", "runbooks", "standards", "techdebt"];
+const expectedSkills = ["doc-feature-creator", "doc-glossary-creator", "doc-goal-creator", "doc-lesson-creator", "doc-runbook-creator", "doc-standard-creator", "doc-techdebt-creator"];
 
 async function project(): Promise<string> {
   return await mkdtemp(join(tmpdir(), "pi-doc-manifests-init-"));
@@ -69,17 +69,17 @@ test("example initialization guides retain their validation contracts", async ()
     assert.match(techdebt, /required-sections: \[Debt, Impact, Why we took it, Retirement condition\]/);
     assert.match(techdebt, /keywords:\n        type: string\[\]/);
 
-    const decisions = await guide("DECISIONS.md");
-    assert.match(decisions, /required-sections: \[Context, Options considered, Decision, Consequences\]/);
-    assert.match(decisions, /filename-pattern: "\[0-9\]\[0-9\]\[0-9\]\[0-9\]-\*\.md"/);
-    assert.match(decisions, /keywords:\n        type: string\[\]/);
+    const standards = await guide("STANDARDS.md");
+    assert.doesNotMatch(standards, /required-sections/);
+    assert.match(standards, /filename-pattern: "\*\*\/\*\.md"/);
+    assert.match(standards, /keywords:\n        type: string\[\]/);
+    assert.equal(standards.split("---\n")[2]?.trim(), "Consequential choices explaining the current design, the intentions behind it, and its tradeoffs, or rules that must be followed as part of the project's conventions.");
 
     const goals = await guide("GOALS.md");
     assert.match(goals, /required-sections: \[Intent, Implications\]/);
     assert.match(goals, /keywords:\n        type: string\[\]/);
-    for (const name of ["LESSONS.md", "POLICIES.md", "RUNBOOKS.md"]) assert.match(await guide(name), /keywords:\n        type: string\[\]/);
+    for (const name of ["LESSONS.md", "RUNBOOKS.md"]) assert.match(await guide(name), /keywords:\n        type: string\[\]/);
     assert.match(await guide("LESSONS.md"), /required-sections: \[Problem, Fix, When to use\]/);
-    assert.match(await guide("POLICIES.md"), /required-sections: \[Rule, Applies to\]/);
     assert.match(await guide("RUNBOOKS.md"), /required-sections: \[Goal, Preconditions, Steps, Verification, Troubleshooting\]/);
     assert.match(await guide("GLOSSARY.md"), /filename-pattern: "\*\*\/\*\.md"/);
     for (const category of CATEGORIES) assert.doesNotMatch(await guide(`${category.toUpperCase()}.md`), /\n  version:/);
@@ -88,6 +88,54 @@ test("example initialization guides retain their validation contracts", async ()
       const path = name.endsWith(".md") ? join(cwd, ".agents", "docs", name) : join(cwd, ".agents", "skills", name, "SKILL.md");
       assert.doesNotMatch(await readFile(path, "utf8"), /\bareas\b/i);
     }
+  } finally { await remove(cwd); }
+});
+
+test("standards accept unnumbered choices and rules without a combined heading contract", async () => {
+  const cwd = await project();
+  try {
+    assert.deepEqual(await initializeProject(cwd), { ok: true });
+    const standards = join(cwd, ".agents", "docs", "standards");
+    const metadata = "---\ndescription: Read before changing this standard.\nkeywords: [design]\n---\n";
+    await writeFile(join(standards, "design-choice.md"), metadata + "# Choice\n\n## Context\nNeed.\n\n## Options considered\nTradeoffs.\n\n## Decision\nChoice.\n\n## Consequences\nCosts.\n");
+    await writeFile(join(standards, "mandatory-rule.md"), metadata + "# Rule\n\n## Rule\nDo this.\n\n## Applies to\nThis project.\n");
+    await writeFile(join(standards, "small-standard.md"), metadata + "# Small standard\n\nA choice and its rationale.\n");
+    const manifest = await buildManifest(cwd) ?? "";
+    for (const name of ["design-choice.md", "mandatory-rule.md", "small-standard.md"]) assert.ok(manifest.includes(name));
+    assert.doesNotMatch(manifest, /## Diagnostics/);
+    await writeFile(join(standards, "invalid.md"), "# Missing metadata\n");
+    assert.match(await buildManifest(cwd) ?? "", /## Diagnostics/);
+    const skill = await readFile(join(cwd, ".agents", "skills", "doc-standard-creator", "SKILL.md"), "utf8");
+    assert.match(skill, /unnumbered kebab-case/);
+    assert.match(skill, /not a mandatory combined shape/);
+  } finally { await remove(cwd); }
+});
+
+test("existing Decisions and Policies remain valid and are never migrated by scanning or init", async () => {
+  const cwd = await project();
+  try {
+    const original = new Map<string, string>();
+    for (const [category, skill, filename, sections] of [
+      ["decisions", "doc-decision-creator", "0001-choice.md", ["Context", "Options considered", "Decision", "Consequences"]],
+      ["policies", "doc-policy-creator", "rule.md", ["Rule", "Applies to"]],
+    ] as const) {
+      const docs = join(cwd, ".agents", "docs");
+      await mkdir(join(docs, category), { recursive: true });
+      await mkdir(join(cwd, ".agents", "skills", skill), { recursive: true });
+      original.set(join(docs, `${category.toUpperCase()}.md`), `---\ndoc-manifest:\n  creator-skill: ${skill}\n  validation:\n    required-sections: [${sections.join(", ")}]\n    filename-pattern: "${category === "decisions" ? "[0-9][0-9][0-9][0-9]-*.md" : "**/*.md"}"\n---\nCustom ${category} guidance.\n`);
+      original.set(join(docs, category, filename), `---\ndescription: Read before changing this subject.\n---\n# Subject\n\n${sections.map(section => `## ${section}\nCustom content.\n`).join("\n")}`);
+      original.set(join(cwd, ".agents", "skills", skill, "SKILL.md"), `---\nname: ${skill}\ndescription: Create custom ${category}.\n---\nPreserve project customization.\n`);
+    }
+    for (const [path, content] of original) await writeFile(path, content);
+    const manifest = await buildManifest(cwd) ?? "";
+    assert.match(manifest, /## Decisions/);
+    assert.match(manifest, /0001-choice\.md/);
+    assert.match(manifest, /## Policies/);
+    assert.doesNotMatch(manifest, /## Standards|## Diagnostics/);
+    assert.equal((await initializeProject(cwd)).ok, false);
+    for (const [path, content] of original) assert.equal(await readFile(path, "utf8"), content);
+    await assert.rejects(readdir(join(cwd, ".agents", "docs", "standards")));
+    await assert.rejects(readdir(join(cwd, ".agents", "skills", "doc-standard-creator")));
   } finally { await remove(cwd); }
 });
 
@@ -218,7 +266,7 @@ test("packages generic manifest skills while keeping category-specific skills pr
   assert.match(designer, /active routing instruction, not merely a summary/);
   assert.match(designer, /doc-manifest\.creator-skill/);
   assert.match(designer, /require explicit approval before/);
-  assert.doesNotMatch(designer, /\b(?:decisions|features|glossary|goals|lessons|policies|runbooks|techdebt)\b/);
+  assert.doesNotMatch(designer, /\b(?:decisions|features|glossary|goals|lessons|policies|runbooks|standards|techdebt)\b/);
   for (const change of ["creating it", "materially expanding", "invalidates existing documents", "renaming, merging, or deleting"]) {
     assert.match(designer, new RegExp(change));
   }
@@ -231,6 +279,14 @@ test("packages generic manifest skills while keeping category-specific skills pr
   assert.match(maintainer, /\.pi-doc-manifests-layout-version/);
   assert.match(maintainer, /doc-manifest\.version/);
   assert.match(maintainer, /Load `doc-manifests-designer`/);
+  assert.match(maintainer, /Existing Decisions, Policies, numbered filenames, and custom categories remain supported/);
+  assert.match(maintainer, /old-to-new path map/);
+  assert.match(maintainer, /case-insensitive collisions/);
+  assert.match(maintainer, /Back up affected files/);
+  assert.match(maintainer, /Git-ignored files/);
+  assert.match(maintainer, /rather than combining the old required-heading lists/);
+  assert.match(maintainer, /Preserve historical provenance paths and old session data/);
+  assert.match(maintainer, /If already migrated, leave it unchanged/);
 
   const reviewer = await readFile("skills/doc-manifests-session-reviewer/SKILL.md", "utf8");
   assert.match(reviewer, /name: doc-manifests-session-reviewer/);
@@ -240,7 +296,7 @@ test("packages generic manifest skills while keeping category-specific skills pr
   assert.match(reviewer, /file-specific plan/);
   assert.match(reviewer, /Ask the user to approve or revise/);
   assert.match(reviewer, /No documentation changes needed/);
-  assert.doesNotMatch(reviewer, /\b(?:decisions|features|glossary|goals|lessons|policies|runbooks|techdebt)\b/);
+  assert.doesNotMatch(reviewer, /\b(?:decisions|features|glossary|goals|lessons|policies|runbooks|standards|techdebt)\b/);
   assert.doesNotMatch(reviewer, /README\.md|AGENTS\.md/);
 
   const { stdout } = await execFileAsync("npm", ["pack", "--dry-run", "--json"]);
@@ -251,6 +307,8 @@ test("packages generic manifest skills while keeping category-specific skills pr
   assert.ok(files.has("skills/doc-manifests-session-reviewer/SKILL.md"));
   assert.ok(!files.has("skills/doc-manifest-designer/SKILL.md"));
   assert.ok(!files.has("skills/doc-manifest-maintainer/SKILL.md"));
+  for (const category of ["DECISIONS", "POLICIES"]) assert.ok(!files.has(`templates/docs/${category}.md`));
+  for (const skill of ["doc-decision-creator", "doc-policy-creator"]) assert.ok(!files.has(`templates/project-skills/${skill}/SKILL.md`));
   for (const category of CATEGORIES) assert.ok(files.has(`templates/docs/${category.toUpperCase()}.md`));
   for (const skill of SKILLS) {
     assert.ok(files.has(`templates/project-skills/${skill}/SKILL.md`));

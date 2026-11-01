@@ -2,8 +2,8 @@ import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { isAbsolute, join, parse, relative, resolve } from "node:path";
 
-export const CATEGORIES = ["decisions", "features", "glossary", "goals", "lessons", "policies", "runbooks", "techdebt"] as const;
-export const SKILLS = ["doc-decision-creator", "doc-feature-creator", "doc-glossary-creator", "doc-goal-creator", "doc-lesson-creator", "doc-policy-creator", "doc-runbook-creator", "doc-techdebt-creator"] as const;
+export const CATEGORIES = ["features", "glossary", "goals", "lessons", "runbooks", "standards", "techdebt"] as const;
+export const SKILLS = ["doc-feature-creator", "doc-glossary-creator", "doc-goal-creator", "doc-lesson-creator", "doc-runbook-creator", "doc-standard-creator", "doc-techdebt-creator"] as const;
 const TEMPLATE_ROOT = join(fileURLToPath(new URL("..", import.meta.url)), "templates");
 
 type Result = { ok: true } | { ok: false; message: string };

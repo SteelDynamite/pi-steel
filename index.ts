@@ -91,7 +91,6 @@ export default function steel(pi: ExtensionAPI): void {
         closeSync(lock);
         unlinkSync(join(agentDir, "steel.lock"));
       }
-      if (ctx.mode === "tui") ctx.ui.setStatus("steel", `Steel: ${selected ?? "unknown"}${syncError ? " (sync failed)" : reloadNeeded ? " (reload required)" : ""}`);
     }
   }
 

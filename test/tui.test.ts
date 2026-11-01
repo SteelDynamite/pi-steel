@@ -72,7 +72,7 @@ test("real TUI: all 13 modules, local model, footer/editor/widgets, minimal → 
     const send = (text: string) => child!.stdin!.write(`${text}\r`);
     await wait("full editor and footer", () => ["setEditorComponent", "setFooter"].every(owner => events().some(event => event.event === "render" && event.owner === owner)));
     await wait("startup selected-name and pending warning", () => /Steel loadout: full/.test(plain(transcript)) && /Saved changes require \/reload/.test(plain(transcript)));
-    assert(events().some(event => event.event === "status" && /Steel: full.*reload required/.test(event.value)), "startup status identifies selected loadout and pending reload");
+    assert(!events().some(event => event.event === "status" && event.key === "steel"), "Steel leaves the footer to token speed and other extension statuses");
     assert.equal(events().filter(event => event.event === "start").length, 1, "startup must not auto reload");
     assert.equal(events().filter(event => event.event === "request").length, 0, "startup warning must not trigger a model turn");
     send("/tui-probe");
@@ -117,6 +117,8 @@ test("real TUI: all 13 modules, local model, footer/editor/widgets, minimal → 
     await wait("clean exit", () => child!.exitCode !== null);
     assert.equal(child.exitCode, 0, plain(transcript));
     assert.equal(events().filter(event => event.event === "request").length, 2, "reloads and shutdown must not trigger model work");
+    assert(events().some(event => event.event === "status" && event.key === "tokenSpeed"), "token speed remains active");
+    assert(!events().some(event => event.event === "status" && event.key === "steel"), "Steel must not publish footer status after commands or reloads either");
     assert(!existsSync(networkPath), "no process may attempt network access");
     assert.equal(readFileSync(join(agentDir, "auth.json"), "utf8"), "{}");
     assert.doesNotMatch(plain(transcript), /Failed to load extension|extension error|TypeError:|ReferenceError:|Steel: Error|exceeds terminal width|Unhandled|\[Extension (?:errors|conflicts)\]/i);

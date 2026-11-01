@@ -27,7 +27,7 @@ Companion skills, prompts, themes, and bundled agent definitions follow their ow
 
 Steel synchronizes on each `session_start`, including reloads. Missing packages install without confirmation unless `PI_OFFLINE` is `1`, `true`, or `yes` (case-insensitive), which blocks automatic installation. Already installed packages are not updated. Orchestrated children (`PI_ORCHESTRATED_CHILD=1`) skip mutations.
 
-Automatic synchronization changes disk configuration, not the current extension set. TUI startup and status show the selected name and any pending reload. Until a new runtime starts, request-local model context warns that `/reload` or a Pi restart is needed and that new children may differ from their old parent. This warning neither starts a model turn nor persists in conversation history.
+Automatic synchronization changes disk configuration, not the current extension set. TUI startup notifications and `/steel status` show the selected name and any pending reload. Steel does not publish a persistent footer status, leaving that space for token speed and other extension statuses. Until a new runtime starts, request-local model context warns that `/reload` or a Pi restart is needed and that new children may differ from their old parent. This warning neither starts a model turn nor persists in conversation history.
 
 Explicit `/steel use` and `/steel sync` still require confirmation for missing downloads; commands without a UI cannot approve them. They reload when changes are pending, including changes already saved by automatic synchronization. A true no-op does not reload. Failures appear in the TUI and model context, never as successful synchronization.
 

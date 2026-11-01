@@ -40,6 +40,7 @@ function fixture(t: test.TestContext, active?: string, external: string[] = []) 
   };
   const notices: { message: string; type: string }[] = [];
   const statuses: string[] = [];
+  t.after(() => assert.deepEqual(statuses, [], "Steel must not publish footer status"));
   let reloads = 0;
   let confirmations = 0;
   const ctx = { cwd: dir, mode: "tui", hasUI: true, ui: {
@@ -74,7 +75,6 @@ test("startup defaults to Everything, downloads without confirmation, preserves 
   assert.deepEqual(saved.skills, ["manual-skills"]);
   assert.equal(JSON.parse(readFileSync(f.configPath, "utf8")).active, "Everything");
   assert(f.notices.some(n => n.type === "warning" && /Everything.*reload/.test(n.message)));
-  assert.match(f.statuses.at(-1)!, /Steel: Everything.*reload required/);
   const original = [{ role: "user", content: "first request", timestamp: 1 }];
   for (let request = 0; request < 2; request++) {
     const transformed = r.context(original);
@@ -95,7 +95,7 @@ test("startup defaults to Everything, downloads without confirmation, preserves 
   const fresh = f.runtime();
   await fresh.start();
   assert.equal(fresh.context(original), undefined, "fresh runtime no longer injects a warning");
-  assert.equal(f.statuses.at(-1), "Steel: Everything");
+  assert(f.notices.some(n => n.type === "info" && n.message === "Steel loadout: Everything"));
   await fresh.command("sync");
   assert.equal(f.counts().reloads, 1);
 });
@@ -126,7 +126,7 @@ test("concurrent startup refuses an existing Steel lock without changing setting
   assert.equal(readFileSync(lock, "utf8"), "another session");
   assert.deepEqual(f.installs, []);
   assert.match(r.context([]).messages[0].content, /EEXIST/);
-  assert.match(f.statuses.at(-1)!, /sync failed/);
+  assert(f.notices.some(n => n.type === "error" && /EEXIST/.test(n.message)));
 });
 
 test("offline startup does not install missing packages and warns the agent", async t => {
@@ -139,7 +139,7 @@ test("offline startup does not install missing packages and warns the agent", as
   assert.equal(readFileSync(f.settingsPath, "utf8"), before);
   assert(!existsSync(f.configPath));
   assert.match(r.context([]).messages[0].content, /offline mode/);
-  assert.match(f.statuses.at(-1)!, /sync failed/);
+  assert(f.notices.some(n => n.type === "error" && /offline mode/.test(n.message)));
 });
 
 test("partial startup download failure reports completed downloads without claiming applied resources and can retry", async t => {
@@ -159,12 +159,12 @@ test("partial startup download failure reports completed downloads without claim
   assert.equal(readFileSync(f.settingsPath, "utf8"), before);
   assert.deepEqual(f.installs, [first]);
   assert.match(f.notices.at(-1)!.message, /Sync incomplete.*second.*completed downloads:.*first.*No resource declarations changed/);
-  assert.match(f.statuses.at(-1)!, /sync failed/);
+  assert.equal(f.notices.at(-1)!.type, "error");
   assert.match(r.context([]).messages[0].content, /failed.*Do not claim it was applied/s);
   assert.deepEqual(f.counts(), { reloads: 0, confirmations: 0 });
   fail = false;
   await r.start();
-  assert.match(f.statuses.at(-1)!, /reload required/);
+  assert(f.notices.some(n => n.type === "warning" && /Saved changes require \/reload/.test(n.message)));
   assert.doesNotMatch(r.context([]).messages[0].content, /failed/);
   const fresh = f.runtime();
   const count = f.installs.length;

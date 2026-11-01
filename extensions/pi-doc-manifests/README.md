@@ -22,7 +22,7 @@ Run this only in a trusted project:
 /doc-manifests init
 ```
 
-It creates an optional example layout with paired guides and folders for `decisions`, `features`, `glossary`, `goals`, `lessons`, `policies`, `runbooks`, and `techdebt`, plus matching project-local `doc-*-creator` skills under `.agents/skills/`. These categories are examples, not a required taxonomy; projects may remove them or use different approved categories. Start a new Pi session after initialization to load the generated project skills; Pi discovers project-local skills only when it reloads resources. Initialization refuses an existing docs root, any target skill, or unsafe/symlinked target ancestor; it never merges or overwrites. Category-specific templates are copied only by this command; the generic manifest skills are package-global.
+It creates an optional example layout with paired guides and folders for `features`, `glossary`, `goals`, `lessons`, `runbooks`, `standards`, and `techdebt`, plus matching project-local `doc-*-creator` skills under `.agents/skills/`. These categories are examples, not a required taxonomy; projects may remove them or use different approved categories. Start a new Pi session after initialization to load the generated project skills; Pi discovers project-local skills only when it reloads resources. Initialization refuses an existing docs root, any target skill, or unsafe/symlinked target ancestor; it never merges or overwrites. Category-specific templates are copied only by this command; the generic manifest skills are package-global.
 
 ## Maintain an initialized project
 
@@ -33,6 +33,18 @@ Run the explicit package skill in the project:
 ```
 
 It audits required creator-skill associations and files, generated skills, declarations, document descriptions, and legacy metadata against current package intentions; discusses mechanical, semantic, and structural changes with the user; and applies only approved updates. It preserves project-specific choices and routes structural changes through `doc-manifests-designer`.
+
+### Optional migration to Standards
+
+New projects use **Standards** for consequential design choices and mandatory conventions, with unnumbered filenames and flexible sections. Existing Decisions/Policies categories and numbered documents remain valid; updating the package does not migrate project files.
+
+After updating the package and reloading its skills, request the opt-in migration:
+
+```text
+/skill:doc-manifests-maintainer Merge Decisions and Policies into Standards with unnumbered filenames.
+```
+
+The maintainer proposes a path map, checks naming conflicts, preserves custom metadata and guidance, and asks for approval. It backs up affected files (including ignored files), moves documents without requiring body rewrites, updates current references, and removes replaced declarations and unused creator skills after verification. Historical provenance and session data remain unchanged. Start a new Pi session afterward to load the new skill and manifest; existing sessions can retain their stored snapshot. `/doc-manifests init` is not an upgrade command.
 
 ## Review a completed session
 
@@ -54,11 +66,11 @@ Each direct, real, non-hidden folder must have an exact uppercase sibling manife
 │   ├── FEATURES.md
 │   ├── features/
 │   │   └── search.md
-│   ├── POLICIES.md
-│   └── policies/
+│   ├── STANDARDS.md
+│   └── standards/
 └── skills/
     ├── doc-feature-creator/SKILL.md
-    └── doc-policy-creator/SKILL.md
+    └── doc-standard-creator/SKILL.md
 ```
 
 Only paired folders are rendered. Discovery is recursive for case-insensitive `.md` files, excludes hidden paths and symlinks, and sorts normalized paths bytewise. Because runtime scanning is gated by Pi project trust, creator skills may have linked directory ancestors, including a junctioned `.agents`; each `SKILL.md` itself must remain a regular, non-linked file. Loose root Markdown, orphan descriptions, unpaired folders, missing or invalid creator skills, malformed/unreadable files, and validation failures appear in `## Diagnostics`.
