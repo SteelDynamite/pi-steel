@@ -5,7 +5,7 @@ import {
 	isPathInside,
 	resolveLocationalAgentId,
 } from "./agents.ts";
-import { CURRENT_LOCATIONAL_ROOT_ENV, DEFAULT_KNOWN_TOOLS } from "./constants.ts";
+import { CURRENT_LOCATIONAL_ROOT_ENV, DEFAULT_KNOWN_TOOLS, locationalAgentsEnabled } from "./constants.ts";
 import { runDelegation, setKnownToolNames, validateAgentTools } from "./execution.ts";
 import {
 	appendLocationalManifest,
@@ -167,14 +167,16 @@ export default function (pi: ExtensionAPI) {
 		// Standalone tool rendering and progress require direct model calls in every mode.
 		exposure: "model-only",
 		label: "Subagent",
-		description: "Delegate exactly one task to an isolated behavioral or locational Pi agent and wait for its result. Requires id, session, and task. Behavioral agents inherit the caller directory. Locational agents use a caller-relative or absolute source-root id containing SUBAGENTS.md and run from that root. Behavioral children discover no locational agents unless includeLocationalAgents is true.",
-		promptSnippet: "Delegate one foreground-managed task to an isolated behavioral or locational Pi agent and wait for its result",
+		description: locationalAgentsEnabled()
+			? "Delegate exactly one task to an isolated behavioral or locational Pi agent and wait for its result. Requires id, session, and task. Behavioral agents inherit the caller directory. Locational agents use a caller-relative or absolute source-root id containing SUBAGENTS.md and run from that root. Behavioral children discover no locational agents unless includeLocationalAgents is true."
+			: "Delegate exactly one task to an isolated behavioral Pi agent and wait for its result. Requires id, session, and task. Behavioral agents inherit the caller directory. Locational agents are disabled; includeLocationalAgents cannot enable them.",
+		promptSnippet: "Delegate one foreground-managed task to an isolated Pi agent and wait for its result",
 		parameters: SubagentParams,
 		async execute(_toolCallId: string, params: SubagentToolParams, signal: AbortSignal | undefined, onUpdate: OnUpdateCallback | undefined, ctx: ExtensionContext) {
 			const trusted = ctx.isProjectTrusted();
 			const discovery = discoverAgents(ctx.cwd, trusted);
 			const makeDetails = (results: SingleResult[]): SubagentDetails => ({
-				includeLocationalAgents: params.includeLocationalAgents ?? false,
+				includeLocationalAgents: locationalAgentsEnabled() && (params.includeLocationalAgents ?? false),
 				locationalAgents: discovery.locationalAgents.map((agent) => agent.id),
 				results,
 			});

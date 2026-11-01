@@ -18,7 +18,7 @@
         "pi-transcript",
         "pi-todo"
       ],
-      "external": ["git:https://github.com/elpapi42/pi-observational-memory.git@886f7a6628d10ea420eb6ceecaee36691489b2fb"]
+      "external": ["git:https://github.com/elpapi42/pi-observational-memory.git"]
     }
   },
   "managed": []

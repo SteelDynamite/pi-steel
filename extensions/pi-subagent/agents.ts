@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { locationalAgentsEnabled } from "./constants.ts";
 import { getAgentDir, parseFrontmatter } from "./pi-compat.ts";
 
 export type AgentOrigin = "bundled" | "user" | "project" | "locational";
@@ -191,6 +192,7 @@ export function loadLocationalAgent(rootDir: string, options: { readBody: boolea
 }
 
 export function resolveLocationalAgentId(cwd: string, id: string): AgentConfig | null {
+	if (!locationalAgentsEnabled()) return null;
 	const requested = path.resolve(cwd, id);
 	if (isBehavioralDefinitionPath(requested, getBehavioralDefinitionRoots(cwd))) return null;
 	const candidate = realPathIfExists(requested);
@@ -202,6 +204,7 @@ export function scanLocationalAgents(cwd: string, options: { maxDepth?: number; 
 	const agents: AgentConfig[] = [];
 	const errors: string[] = [];
 	const roots: string[] = [];
+	if (!locationalAgentsEnabled()) return { agents, errors, roots };
 	const maxDepth = options.maxDepth ?? readPositiveIntegerEnv("PI_SUBAGENT_LOCATIONAL_SCAN_MAX_DEPTH", DEFAULT_LOCATIONAL_SCAN_MAX_DEPTH);
 	const timeoutMs = options.timeoutMs ?? readPositiveIntegerEnv("PI_SUBAGENT_LOCATIONAL_SCAN_TIMEOUT_MS", DEFAULT_LOCATIONAL_SCAN_TIMEOUT_MS);
 	const startedAt = Date.now();

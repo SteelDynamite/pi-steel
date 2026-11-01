@@ -3,13 +3,13 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentConfig } from "./agents.ts";
 import { getAgentInstructionsFileName, getBehavioralDefinitionRoots, isBehavioralDefinitionPath, scanLocationalAgents } from "./agents.ts";
-import { CURRENT_LOCATIONAL_ROOT_ENV, LOCATIONAL_ANCESTOR_STACK_ENV } from "./constants.ts";
+import { CURRENT_LOCATIONAL_ROOT_ENV, LOCATIONAL_ANCESTOR_STACK_ENV, locationalAgentsEnabled } from "./constants.ts";
 import type { ExtensionContext } from "./pi-compat.ts";
 
 const notifiedLocationalBoundaryKeys = new Set<string>();
 
 export function notifyLocationalBoundaryDiscovered(ctx: ExtensionContext, root: string): void {
-	if (!ctx.hasUI) return;
+	if (!locationalAgentsEnabled() || !ctx.hasUI) return;
 	const key = `${path.resolve(ctx.cwd)}\0${path.resolve(root)}`;
 	if (notifiedLocationalBoundaryKeys.has(key)) return;
 	notifiedLocationalBoundaryKeys.add(key);
@@ -30,6 +30,7 @@ function environmentRoot(name: string): string | undefined {
 }
 
 export function getLocationalAncestorStack(): string[] {
+	if (!locationalAgentsEnabled()) return [];
 	const raw = process.env[LOCATIONAL_ANCESTOR_STACK_ENV]?.trim();
 	const roots: string[] = [];
 	if (raw) {
@@ -46,7 +47,7 @@ export function getLocationalAncestorStack(): string[] {
 }
 
 export function getLocationalLoopError(agent: AgentConfig): string | undefined {
-	if (agent.kind !== "locational") return undefined;
+	if (!locationalAgentsEnabled() || agent.kind !== "locational") return undefined;
 	const target = canonicalPath(agent.rootDir);
 	const matching = getLocationalAncestorStack().find((root) => root === target);
 	if (!matching) return undefined;
@@ -63,6 +64,7 @@ function containingLocationalRoot(cwd: string): string | undefined {
 }
 
 export function getGuardedLocationalRoots(cwd: string): string[] {
+	if (!locationalAgentsEnabled()) return [];
 	const active = environmentRoot(CURRENT_LOCATIONAL_ROOT_ENV);
 	const roots = scanLocationalAgents(cwd).roots.map(canonicalPath);
 	const containing = containingLocationalRoot(cwd);
@@ -71,6 +73,8 @@ export function getGuardedLocationalRoots(cwd: string): string[] {
 }
 
 export function makeChildLocationalEnv(agent: AgentConfig): Record<string, string> {
+	// Clear inherited ownership when disabled; stale child environment is not opt-in.
+	if (!locationalAgentsEnabled()) return { [CURRENT_LOCATIONAL_ROOT_ENV]: "", [LOCATIONAL_ANCESTOR_STACK_ENV]: "" };
 	if (agent.kind !== "locational") return {};
 	const target = canonicalPath(agent.rootDir);
 	return {

@@ -7,6 +7,8 @@ import { test } from "node:test";
 import { runDelegation } from "../execution.ts";
 import { subagentSettings, trackedSessions } from "../state.ts";
 
+process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS = "1";
+
 const astra = { provider: "openai", id: "gpt-6-astra", contextWindow: 4000 };
 const sol = { provider: "openai", id: "gpt-6.1-sol", contextWindow: 4000 };
 const ref = (model) => model ? `${model.provider}/${model.id}` : undefined;

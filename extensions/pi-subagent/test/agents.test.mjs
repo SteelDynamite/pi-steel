@@ -6,6 +6,9 @@ import { test } from "node:test";
 import { THINKING_LEVELS, discoverAgents, isPathInside, loadLocationalAgent, resolveLocationalAgentId, scanLocationalAgents } from "../agents.ts";
 import { getGuardedLocationalRoots } from "../locational-guard.ts";
 
+// This suite exercises the explicitly enabled locational implementation.
+process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS = "1";
+
 function tempDir() {
 	return mkdtempSync(join(tmpdir(), "pi-subagent-agents-test-"));
 }

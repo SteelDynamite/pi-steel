@@ -7,6 +7,8 @@ import { isBehavioralDefinitionPath, isPathInside, scanLocationalAgents } from "
 import subagentExtension from "../index.ts";
 import { CURRENT_LOCATIONAL_ROOT_ENV } from "../constants.ts";
 
+process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS = "1";
+
 function guard() {
 	let handler;
 	subagentExtension({ on(name, fn) { if (name === "tool_call") handler = fn; }, registerCommand() {}, registerTool() {}, registerEntryRenderer() {} });

@@ -9,6 +9,8 @@ import { useFakePi } from "./fixtures/pi-host.mjs";
 import { getPiInvocation, runDelegation } from "../execution.ts";
 import { trackedSessions } from "../state.ts";
 
+process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS = "1";
+
 const details = (results) => ({ includeLocationalAgents: false, locationalAgents: [], results });
 
 function fixture(t) {

@@ -11,6 +11,8 @@ import subagentExtension from "../index.ts";
 import { getGuardedLocationalRoots } from "../locational-guard.ts";
 import { makeLocationalManifest } from "../locational-manifest.ts";
 
+process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS = "1";
+
 const repo = fileURLToPath(new URL("..", import.meta.url));
 const envKeys = ["PI_CODING_AGENT_DIR", CURRENT_LOCATIONAL_ROOT_ENV, ORCHESTRATED_CHILD_ENV, ADVERTISE_LOCATIONAL_AGENTS_ENV];
 const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
@@ -111,7 +113,7 @@ test("monorepo ancestor scans exclude bundled companions without project symlink
 test("bundled roots use the loaded module; a separate source checkout requires an explicit project root", async () => {
 	const installed = join(root, "installed");
 	const bundled = define(join(installed, "agents", "reviewer"));
-	for (const file of ["agents.ts", "pi-compat.ts"]) copyFileSync(join(repo, file), join(installed, file));
+	for (const file of ["agents.ts", "pi-compat.ts", "constants.ts"]) copyFileSync(join(repo, file), join(installed, file));
 	writeFileSync(join(installed, "package.json"), '{"type":"module"}');
 	const loaded = await import(pathToFileURL(join(installed, "agents.ts")).href);
 	const discovery = loaded.discoverAgents(installed, true);

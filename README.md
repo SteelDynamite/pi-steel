@@ -49,7 +49,7 @@ Run `/steel use work`. Bundled IDs and their resources are recorded in [extensio
 
 ### Memory preset
 
-[presets/memory/steel.json](presets/memory/steel.json) selects all bundled extensions plus upstream [pi-observational-memory](https://github.com/elpapi42/pi-observational-memory), pinned to upstream revision [`886f7a6`](https://github.com/elpapi42/pi-observational-memory/commit/886f7a6628d10ea420eb6ceecaee36691489b2fb). It is an external package, not a vendored module or fork. The reserved `full` and `minimal` loadouts are unchanged.
+[presets/memory/steel.json](presets/memory/steel.json) selects all bundled extensions plus upstream [pi-observational-memory](https://github.com/elpapi42/pi-observational-memory), tracking its unpinned Git default branch. It is an external package, not a vendored module or fork. The reserved `full` and `minimal` loadouts are unchanged.
 
 [presets/memory/settings.json](presets/memory/settings.json) supplies its configuration overrides:
 
@@ -69,7 +69,7 @@ To apply during a deliberate installation or cutover:
 2. Merge the memory settings into `<agent-dir>/settings.json`'s `observational-memory` object, preserving unrelated settings and any memory model selection. Do not replace the whole settings file. These are explicit configuration overrides, not settings that Steel rewrites during synchronization.
 3. Reload Pi after the settings merge, then run `/steel use memory` and approve the external package download. Do not separately install it as a manually owned package. Start a fresh session after cutover; check `/steel status` and `/om:status`.
 
-The preset ships with Steel but is not applied on startup. Switching away unloads memory without erasing its settings or session history. Background memory workers use the session model unless configured otherwise and incur additional model usage.
+The preset ships with Steel but is not applied or updated on startup. Initial installation resolves upstream's current default branch; later upstream changes require an explicit `pi update git:https://github.com/elpapi42/pi-observational-memory.git` and reload. `/steel sync` restores missing members; it does not update an already installed member. Steel's development lockfile records the tested Git artifact, not a runtime pin: it does not constrain what Pi downloads. The validated artifact is [`0fc37e6`](https://github.com/elpapi42/pi-observational-memory/commit/0fc37e67d977d1d76eab121786a319f5f07ec7d3); its declared `dist/index.ts` reproduces byte-for-byte from upstream's build and includes the unobserved-context safeguards. Future upstream revisions require revalidation. Switching away unloads memory without erasing its settings or session history. Background memory workers use the session model unless configured otherwise and incur additional model usage.
 
 ### Ownership and failures
 

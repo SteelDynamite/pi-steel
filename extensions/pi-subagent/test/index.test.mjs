@@ -6,6 +6,8 @@ import { test } from "node:test";
 import subagentExtension from "../index.ts";
 import { SubagentParams } from "../schema.ts";
 
+process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS = "1";
+
 function registerExtension() {
 	const handlers = new Map();
 	const commands = new Map();

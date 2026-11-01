@@ -13,6 +13,8 @@ import {
 } from "../locational-manifest.ts";
 import { formatBehavioralAgentManifest } from "../prompt.ts";
 
+process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS = "1";
+
 function agent(rootDir, overrides = {}) {
 	return {
 		id: rootDir,

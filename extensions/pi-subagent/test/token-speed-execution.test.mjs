@@ -11,6 +11,8 @@ import { test } from "node:test";
 import { runDelegation } from "../execution.ts";
 import { subagentSettings, trackedSessions } from "../state.ts";
 
+process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS = "1";
+
 const details = (results) => ({ includeLocationalAgents: false, locationalAgents: [], results });
 const start = { type: "message_start", message: { role: "assistant", content: [], timestamp: 9999999999999 } };
 const delta = (text, type = "thinking_delta") => ({ type: "message_update", usage: { output: 0 }, assistantMessageEvent: { type, contentIndex: 0, delta: text } });

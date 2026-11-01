@@ -21,6 +21,8 @@ import {
 } from "../execution.ts";
 import { subagentSettings, trackedSessions } from "../state.ts";
 
+process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS = "1";
+
 function agent(kind) {
 	return {
 		id: kind,
@@ -60,6 +62,7 @@ test("makeSubagentChildEnv sets only current subagent and orchestrated markers",
 	assert.equal(behavioral[ORCHESTRATED_CHILD_ENV], "1");
 	assert.equal(behavioral[ADVERTISE_LOCATIONAL_AGENTS_ENV], "0");
 	assert.equal(behavioral.PI_SUBPROCESS_CHILD, undefined);
+	assert.equal(makeSubagentChildEnv(agent("behavioral"), 0, true)[ADVERTISE_LOCATIONAL_AGENTS_ENV], "1");
 
 	const locational = makeSubagentChildEnv(agent("locational"), 0, false);
 	assert.equal(locational[SUBAGENT_DEPTH_ENV], "1");

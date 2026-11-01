@@ -4,11 +4,17 @@ Read `README.md` for product behavior, installation, and validation commands. Th
 
 Keep delegation foreground-managed: each `subagent` call launches one isolated Pi child, shows progress, waits, and returns one result. Built-in `bash` owns shell commands and Pi owns concurrent sibling tool execution. Do not add detached jobs, background polling, or command execution to this extension. Preserve `exposure: "model-only"` for direct tool rendering and progress.
 
+## Locational opt-in
+
+Keep locational discovery, path delegation, owner prompts, and boundary guards disabled unless `PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS` is exactly `1`. Stale locational environment and `includeLocationalAgents` must not enable the feature. Behavioral children inherit the feature gate; the tool parameter only enables their advertising after opt-in. Clear inherited ownership markers when disabled. Existing session text is not retroactively removed; validate fresh sessions.
+
+Locational tests explicitly opt in. Preserve default-off installed-copy versus separate-source-checkout regression coverage; do not hide misclassification with broad directory exclusions or project symlinks. Retained opt-in guards are not an OS sandbox; see README for limits.
+
 ## Model configuration maintenance
 
 Pin explicit OpenAI model selectors as `openai/<model-id>`; preserve model IDs and declared thinking levels. Behavioral `whenCallerModelId` accepts a literal model ID or a nonempty YAML list of literal IDs, not provider-qualified selectors. `thenModel: caller` preserves the immediate caller's provider; an explicit `thenModel: provider/model` pins the target provider. Bundled rules match Astra and Sol 6.1: scout uses `openai/gpt-6.1-sol` low, worker the same model medium, reviewer `openai/gpt-6-astra` xhigh. Keep conditional policy in definitions, never agent-name dispatch or speed-dependent matching. See README's behavioral caller overrides for field validation and resume semantics.
 
-Locational definitions without a model use `PI_SUBAGENT_LOCATIONAL_PREFERRED_MODELS` when available, otherwise the caller model.
+When explicitly enabled, locational definitions without a model use `PI_SUBAGENT_LOCATIONAL_PREFERRED_MODELS` when available, otherwise the caller model.
 
 Definitions are reread on each delegation and before each agent run; selector edits need no reload. Extension-code changes require `/reload`; parent environment changes require restarting Pi. The visible locational manifest is a branch snapshot, not the live selector configuration.
 

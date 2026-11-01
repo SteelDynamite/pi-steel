@@ -13,6 +13,8 @@ import {
 } from "../locational-guard.ts";
 import { CURRENT_LOCATIONAL_ROOT_ENV, LOCATIONAL_ANCESTOR_STACK_ENV } from "../constants.ts";
 
+process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS = "1";
+
 const trackedEnvKeys = [CURRENT_LOCATIONAL_ROOT_ENV, LOCATIONAL_ANCESTOR_STACK_ENV];
 const originalEnv = Object.fromEntries(trackedEnvKeys.map((key) => [key, process.env[key]]));
 

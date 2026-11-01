@@ -1,7 +1,7 @@
 import { Box, Markdown, type MarkdownTheme } from "@earendil-works/pi-tui";
 import type { AgentConfig } from "./agents.ts";
 import { discoverAgents } from "./agents.ts";
-import { ADVERTISE_LOCATIONAL_AGENTS_ENV, ORCHESTRATED_CHILD_ENV } from "./constants.ts";
+import { ADVERTISE_LOCATIONAL_AGENTS_ENV, ORCHESTRATED_CHILD_ENV, locationalAgentsEnabled } from "./constants.ts";
 import type { ExtensionAPI, ExtensionContext } from "./pi-compat.ts";
 
 export const LOCATIONAL_MANIFEST_ENTRY = "pi-subagent-locational-manifest";
@@ -11,6 +11,7 @@ export interface LocationalManifestData {
 }
 
 export function shouldAdvertiseLocationalAgents(): boolean {
+	if (!locationalAgentsEnabled()) return false;
 	const value = process.env[ADVERTISE_LOCATIONAL_AGENTS_ENV]?.trim().toLowerCase();
 	return value !== "0" && value !== "false" && value !== "no" && value !== "off";
 }

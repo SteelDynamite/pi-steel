@@ -10,6 +10,7 @@ import {
 	ADVERTISE_LOCATIONAL_AGENTS_ENV,
 	DEFAULT_KNOWN_TOOLS,
 	LOCATIONAL_PREFERRED_MODELS_ENV,
+	locationalAgentsEnabled,
 	MAX_SUBAGENT_DEPTH,
 	ORCHESTRATED_CHILD_ENV,
 	SUBAGENT_DEPTH_ENV,
@@ -104,7 +105,7 @@ export function makeSubagentChildEnv(agent: AgentConfig, currentDepth: number, i
 	return {
 		[SUBAGENT_DEPTH_ENV]: String(currentDepth + 1),
 		[ORCHESTRATED_CHILD_ENV]: "1",
-		[ADVERTISE_LOCATIONAL_AGENTS_ENV]: agent.kind === "behavioral" && !includeLocationalAgentsInBehavioralChild ? "0" : "1",
+		[ADVERTISE_LOCATIONAL_AGENTS_ENV]: locationalAgentsEnabled() && (agent.kind === "locational" || includeLocationalAgentsInBehavioralChild) ? "1" : "0",
 		...makeChildLocationalEnv(agent),
 	};
 }

@@ -1,11 +1,11 @@
 # Pi Subagent
 
-Foreground-managed behavioral and locational Pi-agent delegation. Each `subagent` call runs one isolated Pi child and returns its result; built-in `bash` owns shell execution.
+Foreground-managed behavioral Pi-agent delegation, with optional locational agents. Each `subagent` call runs one isolated Pi child and returns its result; built-in `bash` owns shell execution.
 
 ## Features
 
 - Behavioral discovery precedence: bundled, user, then trusted-project definitions.
-- Locational `SUBAGENTS.md` discovery, source-root boundaries, and recursion guards.
+- Default-off locational `SUBAGENTS.md` discovery, source-root boundaries, and recursion guards.
 - One-agent progress, abort propagation, context-limit reporting, resumable sessions, and one same-session locational-model fallback.
 - A trusted-parent TUI locational-agent manifest matching the parent prompt.
 - Behavioral children do not advertise locational agents unless requested.
@@ -43,7 +43,7 @@ Delegation requires the hosting `@earendil-works/pi-coding-agent` package to inc
 }
 ```
 
-`id`, `session`, and `task` are required. `contextDocs` and `includeLocationalAgents` are optional. Use `resume` only when the prior result requests it. Behavioral agents inherit the caller directory; locational-agent ids are absolute or caller-relative folders containing `SUBAGENTS.md` and run from that source root.
+`id`, `session`, and `task` are required. `contextDocs` and `includeLocationalAgents` are optional. Use `resume` only when the prior result requests it. Behavioral agents inherit the caller directory. With locational support enabled, locational-agent ids are absolute or caller-relative folders containing `SUBAGENTS.md` and run from that source root. `includeLocationalAgents` controls behavioral-child advertising only; it cannot enable locational support.
 
 Use ordinary `bash` calls for shell commands and sibling/later `subagent` calls for concurrent/sequential delegation.
 
@@ -117,17 +117,23 @@ Rules are reevaluated for every delegation, including resume. Effective model an
 
 ## Discovery and safety
 
+Locational support is **off by default**. To opt in, start Pi with exactly `PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS=1`. Other values do not enable it. Restart Pi after changing the environment; extension reload alone cannot change the parent process environment.
+
+Without opt-in, no locational discovery, path-based delegation, owner prompt injection, manifest entries, or boundary guards run. Existing locational root, stack, advertisement, scan, and preferred-model environment settings cannot activate the feature. Behavioral children retain this default even with `includeLocationalAgents: true`; stale ownership markers are cleared in their environment. When opted in, children inherit the feature switch, and behavioral-child advertising still requires `includeLocationalAgents: true`. Turning advertising off does not disable opted-in delegation or guards.
+
+Existing session text and historical manifest cards are not removed. Start fresh sessions to avoid retained owner instructions. Opt-in guards are advisory tool-level checks, **not an OS sandbox**: dynamic shell access, some recursive searches, bounded discovery, and path aliases can bypass them. Child extensions must be installed/discoverable; arbitrary parent `-e` flags are not forwarded.
+
 Behavioral definitions resolve from the loaded extension's bundled `agents/`, then user `~/.pi/agent/agents/` (or `$PI_CODING_AGENT_DIR/agents/`), then one trusted project root. The project root is `cwd/.pi/agents/` when that directory exists (including empty); otherwise it is `cwd/.agents/subagents/`. Ancestors are never searched and project roots are not merged.
 
-These exact behavioral trees are excluded from locational discovery, path-based delegation, local owner instructions, and boundary guards. The CWD portable tree remains excluded even when masked by `.pi/agents`. Exclusions follow symlinked containers and direct-child directory symlinks containing `SUBAGENTS.md`, including overridden or invalid definitions. A directory merely named `agents`, or a nested `.agents/subagents` outside those trees, is not exempt. A separate checkout is not the loaded extension's bundled root. This checkout declares its `agents/` through the `.agents/subagents -> ../agents` project-root symlink, so an installed copy also recognizes these definitions as behavioral.
+These exact behavioral trees are excluded from locational discovery, path-based delegation, local owner instructions, and boundary guards. The CWD portable tree remains excluded even when masked by `.pi/agents`. Exclusions follow symlinked containers and direct-child directory symlinks containing `SUBAGENTS.md`, including overridden or invalid definitions. A directory merely named `agents`, or a nested `.agents/subagents` outside those trees, is not exempt. A separate checkout is not the loaded extension's bundled root. No project symlink is supplied. With opt-in enabled, a separate checkout's bundled definitions can therefore be misclassified as locational definitions; default-off avoids that scan and its configuration errors.
 
-`SUBAGENTS.md` remains authoritative for other locational discovery, delegation, and boundaries. A genuine locational ancestor still protects behavioral files beneath it; behavioral classification does not grant access through that ancestor. A locational child cannot delegate to its active root or ancestor stack.
+When explicitly enabled, `SUBAGENTS.md` remains authoritative for other locational discovery, delegation, and boundaries. A genuine locational ancestor still protects behavioral files beneath it; behavioral classification does not grant access through that ancestor. A locational child cannot delegate to its active root or ancestor stack.
 
 Locational models may declare `model:` candidates or use `PI_SUBAGENT_LOCATIONAL_PREFERRED_MODELS`. If a selected non-caller locational model fails before task work, the child retries once in the same session with the caller model. Context-limit failures are labeled `context_limit`.
 
 Trusted parent TUI sessions show a locational-agent manifest card. Reload, resume, tree navigation, and compaction reuse a visible branch entry or append one when absent. Child sessions, untrusted projects, non-TUI modes, disabled advertisement, and empty discovery show no card.
 
-Delegated children set only `PI_ORCHESTRATED_CHILD=1`. This suppresses automatic child-session supervisors.
+Delegated children set `PI_ORCHESTRATED_CHILD=1`, recursion depth, and locational advertising/ownership markers. The orchestrated marker suppresses automatic child-session supervisors.
 
 ## Settings
 

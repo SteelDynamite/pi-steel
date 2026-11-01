@@ -75,7 +75,7 @@ async function exerciseHost(): Promise<void> {
     theme.name = name;
     writeFileSync(join(path, "themes", `${name}.json`), JSON.stringify(theme));
   }
-  // Test the pinned upstream artifact unchanged, using a local source to keep
+  // Test the lockfile's upstream artifact unchanged, using a local source to keep
   // automated host checks offline. The shipped preset retains its Git identity.
   packagePaths.memory = join(home, "memory");
   cpSync(join(sourceRoot, "node_modules/pi-observational-memory"), packagePaths.memory, { recursive: true });

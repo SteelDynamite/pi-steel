@@ -8,6 +8,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { classifyContextLimitFailure, runDelegation, shouldRetryPreferredModelFailure } from "../execution.ts";
 
+process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS = "1";
+
 const details = (results) => ({ includeLocationalAgents: false, locationalAgents: [], results });
 
 for (const scenario of ["trust-denied", "trust-allowed", "abort-after-answer", "abort-provider-error", "already-aborted"]) {
