@@ -36,5 +36,5 @@
 - Keep this file limited to concise, current operating instructions. Do not add work logs, completion narratives, deployment history, commit inventories, CI links, test counts, or dated validation reports.
 - `README.md` describes the product for humans. Put consequential rationale in Standards, repeatable procedures in Runbooks, and unresolved risks in Techdebt. Preserve evidence only when it changes a future decision; discard redundant history instead of relocating it wholesale.
 - Use the injected manifest to route local project memory under `.agents/docs/`. Load the category's creator skill before substantive changes. Do not invent categories or a parallel index without approval.
-- `.agents/` is local-only. Before deleting a record, distill only necessary current knowledge into its proper home; Git does not preserve these records. Keep Standards filenames unnumbered and sections appropriate to their content.
-- Never stage or commit `.agents/`, secrets, personal Pi settings, credentials, sessions, or dependency trees. Never bypass their ignore rules.
+- Before deleting a record, distill only necessary current knowledge into its proper home. Keep Standards filenames unnumbered and sections appropriate to their content.
+- Never stage or commit secrets, personal Pi settings, credentials, sessions, or dependency trees. Never bypass their ignore rules.
