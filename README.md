@@ -4,7 +4,7 @@ A personal Pi extension collection and loadout manager, distributed as one packa
 
 ## Status
 
-All 13 modules are imported. Checks cover the source package, installed npm tarball, real Pi reloads, terminal UI coexistence, subagent children, and isolated live-provider smoke tests. This is a development build, not a tagged release. Active-installation cutover remains a separate step; other environments are managed independently.
+All 13 modules are imported. Checks cover the source package, installed npm tarball, real Pi reloads, terminal UI coexistence, subagent children, and isolated live-provider smoke tests. A recovery-backed local cutover has also passed. This is a development build, not a tagged release; other environments require their own installation and validation.
 
 ## Loadouts
 
