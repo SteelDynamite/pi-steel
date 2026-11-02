@@ -8,7 +8,7 @@ import {
 	type EditorTheme,
 	type TUI,
 } from "@earendil-works/pi-tui";
-import type { ImageContent, Message, Model, TextContent } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Context, ImageContent, Message, Model, SimpleStreamOptions, TextContent } from "@earendil-works/pi-ai";
 
 export type InputSource = "interactive" | "rpc" | "extension";
 export type WidgetPlacement = "aboveEditor" | "belowEditor";
@@ -25,12 +25,13 @@ export interface InputEvent {
 export interface ExtensionAPI {
 	on(event: "agent_end", handler: (event: AgentEndEvent, ctx: ExtensionContext) => void | Promise<void>): void;
 	on(event: "input", handler: (event: InputEvent, ctx: ExtensionContext) => void | Promise<void>): void;
-	on(event: "session_start" | "agent_start" | "session_shutdown", handler: (event: unknown, ctx: ExtensionContext) => void | Promise<void>): void;
+	on(event: "session_start" | "agent_start" | "session_shutdown" | "session_tree" | "session_compact" | "model_select", handler: (event: unknown, ctx: ExtensionContext) => void | Promise<void>): void;
 }
 
 export interface ExtensionContext {
 	ui: ExtensionUIContext;
 	hasUI: boolean;
+	signal?: AbortSignal;
 	cwd: string;
 	modelRegistry: ModelRegistry;
 	model: Model<any> | undefined;
@@ -57,12 +58,13 @@ export interface KeybindingsManager {
 }
 
 export interface ModelRegistry {
+	streamSimple?(model: Model<any>, context: Context, options?: SimpleStreamOptions): { result(): Promise<AssistantMessage> };
 	getApiKeyAndHeaders(model: Model<any>): Promise<ResolvedRequestAuth>;
 	find(provider: string, model: string): Model<any> | undefined;
 }
 
 type ResolvedRequestAuth =
-	| { ok: true; apiKey?: string; headers?: Record<string, string> }
+	| { ok: true; apiKey?: string; headers?: Record<string, string>; baseUrl?: string; env?: Record<string, string> }
 	| { ok: false; error?: string };
 
 interface BashExecutionMessage {
@@ -146,6 +148,12 @@ export class CustomEditor extends Editor {
 				if (handler) handler();
 				return;
 			}
+		}
+		// Match Pi's explicit history-over-application binding precedence.
+		if (this.keybindings.matches(data, "tui.editor.historyPrevious") ||
+			this.keybindings.matches(data, "tui.editor.historyNext")) {
+			super.handleInput(data);
+			return;
 		}
 		for (const [action, handler] of this.actionHandlers) {
 			if (action !== "app.interrupt" && action !== "app.exit" && this.keybindings.matches(data, action)) {

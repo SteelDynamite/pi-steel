@@ -42,7 +42,11 @@ Delegation requires the hosting `@earendil-works/pi-coding-agent` package to inc
 
 `id`, `session`, and `task` are required. `contextDocs` and `includeLocationalAgents` are optional. Use `resume` only when the prior result requests it. Behavioral agents inherit the caller directory. With locational support enabled, locational-agent ids are absolute or caller-relative folders containing `SUBAGENTS.md` and run from that source root. `includeLocationalAgents` controls behavioral-child advertising only; it cannot enable locational support.
 
-Use ordinary `bash` calls for shell commands and sibling/later `subagent` calls for concurrent/sequential delegation.
+Use ordinary `bash` calls for shell commands and sibling/later `subagent` calls for concurrent/sequential delegation. Different agents may run concurrently. A resumable agent allows one active call per parent/agent and per saved child session ID in this extension runtime; overlapping calls fail immediately rather than queue. Reservations cover launcher/prompt preparation, process close, fallback, and state persistence. They are not cross-process filesystem locks.
+
+Failed or aborted resumable calls discard their saved reuse record and request `session: "new"`; successful calls retain threshold-based reuse. Process errors remain owned until Node reports `close`, including failed spawns. Cancellation remains the primary outcome when termination also reports an error. No execution deadline or process-tree supervisor is provided.
+
+Final answers join all nonempty text blocks of the last text-bearing assistant message in order; thinking is excluded and tool-only tails do not erase the answer. Native tool-result usage includes child assistant calls, descendant tool-result usage, and failed fallback attempts, so host session totals include delegated work. Displayed per-attempt usage and token speed remain separate. Nested progress retains at most 16 calls, each serialized call bounded to 20 KiB; oversized details/errors are visibly truncated. This does not cap the child's overall stdout, transcript, or execution.
 
 ## Token speed
 
@@ -118,7 +122,9 @@ Locational support is **off by default**. To opt in, start Pi with exactly `PI_S
 
 Without opt-in, no locational discovery, path-based delegation, owner prompt injection, manifest entries, or boundary guards run. Existing locational root, stack, advertisement, scan, and preferred-model environment settings cannot activate the feature. Behavioral children retain this default even with `includeLocationalAgents: true`; stale ownership markers are cleared in their environment. When opted in, children inherit the feature switch, and behavioral-child advertising still requires `includeLocationalAgents: true`. Turning advertising off does not disable opted-in delegation or guards.
 
-Existing session text and historical manifest cards are not removed. Start fresh sessions to avoid retained owner instructions. Opt-in guards are advisory tool-level checks, **not an OS sandbox**: dynamic shell access, some recursive searches, bounded discovery, and path aliases can bypass them. Child extensions must be installed/discoverable; arbitrary parent `-e` flags are not forwarded.
+Existing session text and historical manifest cards are not removed. Start fresh sessions to avoid retained owner instructions. Opt-in guards are advisory tool-level checks, **not an OS sandbox**. In trusted projects, direct targets also check their ancestors independently of advertisement scanning, including missing suffixes and dangling symlink aliases. Built-in read/write/edit/search paths follow Pi 1.4 file-URL, `@`, Unicode-space and read-fallback semantics on tested Linux paths. Built-in `grep`/`find` ancestor scopes are blocked when they contain a discovered owner; no recursive enforcement scan is added. Active owners and behavioral exemptions remain intact. Untrusted project declarations cannot block direct tools while their delegated agents are unavailable.
+
+Dynamic shell access, literal recursive shell scopes, owners omitted by bounded discovery during recursive searches, filesystem races, custom-tool path semantics, and untested native Windows normalization remain limitations. Filesystem resolution errors fail closed rather than authorizing a lexical substitute. Child extensions must be installed/discoverable; arbitrary parent `-e` flags are not forwarded.
 
 Behavioral definitions resolve from the loaded extension's bundled `agents/`, then user `~/.pi/agent/agents/` (or `$PI_CODING_AGENT_DIR/agents/`), then one trusted project root. The project root is `cwd/.pi/agents/` when that directory exists (including empty); otherwise it is `cwd/.agents/subagents/`. Ancestors are never searched and project roots are not merged.
 
@@ -138,8 +144,12 @@ Use `/subagent-settings` to configure resumable-session reuse and context thresh
 
 ## Validation
 
+Run from this module after root dependency setup. Host-backed path and usage regressions use the root distribution's installed Pi; remaining tests use deterministic local child fixtures. No live provider is required.
+
 ```bash
-npm run typecheck
-npm test
-npm pack --dry-run
+test_home=$(mktemp -d)
+HOME="$test_home" PI_CODING_AGENT_DIR="$test_home/agent" npm run typecheck
+HOME="$test_home" PI_CODING_AGENT_DIR="$test_home/agent" npm test
+HOME="$test_home" PI_CODING_AGENT_DIR="$test_home/agent" npm pack --dry-run
+rm -rf "$test_home"
 ```

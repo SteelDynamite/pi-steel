@@ -1,8 +1,6 @@
 /**
- * Add ChatGPT Codex usage and speed mode support to pi.
- *
- * Uses ChatGPT's usage endpoint:
- *   GET https://chatgpt.com/backend-api/wham/usage
+ * Add ChatGPT speed controls and footer status to pi.
+ * Quota fetching and display remain disabled pending supported direct-OAuth access.
  */
 
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
@@ -568,66 +566,6 @@ function addUsage(total, usage) {
   total.cost += usage?.cost?.total ?? 0
 }
 
-function getUsageColor(window) {
-  const used = Math.max(0, Math.min(100, window?.usedPercent ?? 0))
-  if (used >= 90) return "error"
-  if (used >= 80) return "warning"
-  return "dim"
-}
-
-function formatFooterUsagePart(label, window, theme) {
-  if (!window) return undefined
-
-  let text
-  if (label === "W" && footerConfig.displayMode.startsWith("pace")) {
-    if (footerConfig.displayMode === "pace") {
-      text = `WP ${formatPacePercent(window)}`
-    } else if (footerConfig.displayMode === "paceCompact") {
-      text = `WP ${formatPacePercentShort(window)}`
-    } else if (footerConfig.displayMode === "paceResetCompact") {
-      text = `WP ${formatPacePercentShort(window)} · ${formatResetShort(window.resetAt)}`
-    }
-  } else {
-    if (footerConfig.displayMode === "remaining") {
-      text = `${label} ${formatRemainingPercent(window)} left`
-    } else if (footerConfig.displayMode === "remainingCompact") {
-      text = `${label} ${formatRemainingPercent(window)} left · ${formatResetShort(window.resetAt)}`
-    } else {
-      const used = formatUsedPercent(window)
-      text =
-        footerConfig.displayMode === "compact"
-          ? `${label} ${used} · ${formatResetShort(window.resetAt)}`
-          : `${label} ${used}`
-    }
-  }
-
-  return theme.fg(getUsageColor(window), text)
-}
-
-function formatFooterUsage(theme) {
-  if (footerConfig.quotaWindow === "hidden") return undefined
-  if (usageSnapshot?.httpStatus)
-    return theme.fg("warning", `Usage: HTTP ${usageSnapshot.httpStatus}`)
-
-  const parts = []
-  if (
-    footerConfig.quotaWindow === "fiveHour" ||
-    footerConfig.quotaWindow === "both"
-  ) {
-    const part = formatFooterUsagePart("5h", usageSnapshot?.fiveHour, theme)
-    if (part) parts.push(part)
-  }
-  if (
-    footerConfig.quotaWindow === "weekly" ||
-    footerConfig.quotaWindow === "both"
-  ) {
-    const part = formatFooterUsagePart("W", usageSnapshot?.weekly, theme)
-    if (part) parts.push(part)
-  }
-
-  return parts.length > 0 ? parts.join(theme.fg("dim", " / ")) : undefined
-}
-
 /** @param {string} speedMode */
 function renderFooter(
   pi,
@@ -710,13 +648,6 @@ function renderFooter(
     isSpeedModeSupported(model, speedMode, ctx.modelRegistry)
   ) {
     rightSideWithoutProvider += ` • ${SPEED_MODE_LABELS[speedMode]}`
-  }
-
-  if (isChatGptModel(model, ctx.modelRegistry)) {
-    const footerUsage = formatFooterUsage(theme)
-    if (footerUsage) {
-      rightSideWithoutProvider += ` • ${footerUsage}`
-    }
   }
 
   let rightSide = rightSideWithoutProvider
@@ -826,47 +757,12 @@ async function updateUsage(ctx) {
     return undefined
   }
 
-  const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model)
-  if (!auth.ok || !auth.apiKey) {
-    usageSnapshot = undefined
-    requestRender()
-    return undefined
-  }
-
-  const tokenMetadata = getTokenMetadata(auth.apiKey)
-  const headers = {
-    Authorization: `Bearer ${auth.apiKey}`,
-    Accept: "application/json",
-    "User-Agent": "pi-chatgpt",
-    ...(tokenMetadata.accountId
-      ? { "chatgpt-account-id": tokenMetadata.accountId }
-      : {}),
-  }
-
-  try {
-    const response = await fetch(`${CHATGPT_BASE_URL}/wham/usage`, {
-      headers,
-      signal: AbortSignal.timeout(15000),
-    })
-    if (!response.ok) {
-      // Keep only the status; server error bodies may contain private data.
-      usageSnapshot = { httpStatus: response.status }
-      requestRender()
-      return undefined
-    }
-
-    usageSnapshot = parseUsageSnapshot(await response.json())
-    if (!usageSnapshot.email && tokenMetadata.email)
-      usageSnapshot.email = tokenMetadata.email
-    if (!usageSnapshot.planType && tokenMetadata.planType)
-      usageSnapshot.planType = tokenMetadata.planType
-    requestRender()
-    return usageSnapshot
-  } catch {
-    usageSnapshot = undefined
-    requestRender()
-    return undefined
-  }
+  // Pi 1.4's facade strips exact-result OAuth provenance. Cached OAuth status,
+  // token claims and provider-level source labels cannot authorize this request.
+  // Fail closed without even starting a host-owned credential refresh.
+  usageSnapshot = undefined
+  requestRender()
+  return undefined
 }
 
 function buildUsageDetails(snapshot, provider) {
@@ -966,7 +862,7 @@ async function selectFooterConfigOption(
                 theme.fg("accent", theme.bold(title)),
                 theme.fg(
                   "dim",
-                  "↑↓ preview in footer • enter save • esc cancel",
+                  "Quota display paused • enter save preference • esc cancel",
                 ),
                 "",
               ]
@@ -1082,6 +978,8 @@ export const __test__ = {
 export default function (pi) {
   /** @type {Promise<unknown>} */
   let inFlight = Promise.resolve()
+  let generation = 0
+  let active = true
   let speedMode = STANDARD_MODE
   const inheritedFastEnv = process.env[FAST_ENV]
   const inheritedSpeedEnv = process.env[SPEED_ENV]
@@ -1089,7 +987,13 @@ export default function (pi) {
   let ownedSpeedEnvValue
 
   function queueUpdate(ctx) {
-    inFlight = inFlight.catch(() => undefined).then(() => updateUsage(ctx))
+    const owner = generation
+    inFlight = inFlight
+      .catch(() => undefined)
+      .then(() => {
+        if (!active || owner !== generation) return undefined
+        return updateUsage(ctx)
+      })
     return inFlight
   }
 
@@ -1136,12 +1040,16 @@ export default function (pi) {
   }
 
   async function handleChatGptCommand(_args, ctx) {
+    if (!active) return
+    const owner = generation
     const action = await ctx.ui.select("ChatGPT Codex usage limits", [
       "Show current usage details",
       `Configure footer limit (${describeFooterConfig()})`,
       "Configure footer display mode",
       "Reset footer settings to defaults",
     ])
+
+    if (!active || owner !== generation) return
 
     if (action === "Configure footer display mode") {
       await configureDisplayMode(ctx)
@@ -1169,10 +1077,11 @@ export default function (pi) {
     }
 
     const snapshot = await queueUpdate(ctx)
+    if (!active || owner !== generation) return
     if (!snapshot) {
       const status = usageSnapshot?.httpStatus
       ctx.ui.notify(
-        `Could not load ChatGPT usage limits${status ? ` (HTTP ${status})` : ""}.`,
+        `Could not load ChatGPT usage limits${status ? ` (HTTP ${status})` : ": quota requests disabled because Pi cannot prove the resolved credential is OAuth"}. Use ChatGPT Settings → Usage.`,
         "warning",
       )
       return
@@ -1185,7 +1094,10 @@ export default function (pi) {
   }
 
   pi.on("session_start", async (_event, ctx) => {
+    active = true
+    const owner = ++generation
     await restoreGlobalConfig(ctx)
+    if (!active || owner !== generation) return
     const inheritedSpeedMode = parseSpeedEnv(inheritedSpeedEnv)
     const inheritedFastEnabled = parseFastEnv(inheritedFastEnv)
     speedMode =
@@ -1218,6 +1130,8 @@ export default function (pi) {
   })
 
   pi.on("session_shutdown", async () => {
+    active = false
+    generation++
     requestRender = () => {}
     restoreSpeedEnvironment()
   })

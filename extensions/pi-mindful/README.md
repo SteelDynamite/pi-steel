@@ -4,11 +4,11 @@ Pi extension that turns agent working time into guided breathing.
 
 ## Behavior
 
-- Shows a subtle breathing working indicator while Pi works.
+- Leaves Pi's shared working indicator unchanged, including other extensions' customization.
 - After a delay, shows a fancy breathing widget near the editor.
 - Widget bars fill and texture animate outward from center.
 - Stops immediately when the agent finishes.
-- Suppresses UI in orchestrated Pi child sessions.
+- Performs no automatic UI or configuration work when `PI_ORCHESTRATED_CHILD=1`; `/mindful` remains discoverable but reports that it is disabled.
 
 ## Commands
 

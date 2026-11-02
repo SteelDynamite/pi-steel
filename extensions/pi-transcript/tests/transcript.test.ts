@@ -165,6 +165,38 @@ test("persists visible compacted context in block order and can restore original
 	}
 });
 
+test("retains branch and compaction summaries across repeated locked-host rewrites", () => {
+	const directory = mkdtempSync(join(tmpdir(), "pi-transcript-"));
+	try {
+		const manager = session(directory);
+		manager.branchWithSummary(null, "Branch summary");
+		manager.appendMessage(user("Compacted prompt"));
+		manager.appendMessage(assistant("Compacted response"));
+		const tail = manager.appendMessage(user("Retained prompt"));
+		manager.appendMessage(assistant("Retained response"));
+		manager.appendCompaction("Compaction summary", tail, 1000);
+		let previous = manager;
+		const expected = convertToLlm(manager.buildSessionContext().messages);
+		for (let i = 0; i < 3; i++) {
+			const next = session(directory);
+			populateRewrittenSession(next, buildReviewContext(previous), new Map(), model);
+			assert.deepEqual(convertToLlm(next.buildSessionContext().messages), expected);
+			previous = next;
+		}
+		const branchOnly = session(directory);
+		branchOnly.branchWithSummary(null, "Retained branch summary");
+		branchOnly.appendMessage(user("Prompt"));
+		branchOnly.appendMessage(assistant("Response"));
+		const rewritten = session(directory);
+		populateRewrittenSession(rewritten, buildReviewContext(branchOnly), new Map(), model);
+		const repeated = session(directory);
+		populateRewrittenSession(repeated, buildReviewContext(rewritten), new Map(), model);
+		assert.deepEqual(convertToLlm(repeated.buildSessionContext().messages), convertToLlm(branchOnly.buildSessionContext().messages));
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
+});
+
 test("detects changes and labels restoration", () => {
 	const block = {
 		status: "compacted",

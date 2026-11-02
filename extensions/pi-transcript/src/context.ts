@@ -1,3 +1,4 @@
+import * as host from "@earendil-works/pi-coding-agent";
 import {
 	convertToLlm,
 	SessionManager,
@@ -45,6 +46,23 @@ export type ContextMessage = ReturnType<typeof convertToLlm>[number];
 export interface ReviewContext {
 	blocks: ReviewBlock[];
 	prefixMessages: ContextMessage[];
+	/** Canonical chronology; empty block slots preserve explicit restoration positions. */
+	sequence: Array<{ blockId?: string; message?: ContextMessage }>;
+}
+
+function project(entries: SessionEntry[]) {
+	// Pi 1.4 exposes provenance, so edits and overlapping compactions stay host-owned.
+	const projection = (host as unknown as { buildSessionProjection?: (entries: SessionEntry[]) => {
+		entries: Array<{ sourceEntry: SessionEntry; messages: ReturnType<typeof sessionEntryToContextMessages> }>;
+	} }).buildSessionProjection;
+	if (projection) return projection(entries).entries;
+	if (entries.some((entry) => entry.type === "context_edit" as string)) {
+		throw new Error("Context edits require Pi 1.4 or newer for safe transcript rewriting");
+	}
+	return host.buildContextEntries(entries).map((sourceEntry, index) => ({
+		sourceEntry,
+		messages: sourceEntry.type === "compaction" && index > 0 ? [] : sessionEntryToContextMessages(sourceEntry),
+	}));
 }
 
 function contentText(content: unknown, includeImages: boolean): string {
@@ -129,12 +147,15 @@ function loadBlockMessages(source: SourceReference, managers: Map<string, Sessio
 		}
 	}
 
+	const effective = new Map(project(manager.getBranch()).map((entry) => [entry.sourceEntry.id, entry.messages]));
 	const messages: BlockMessage[] = [];
 	for (const id of source.entryIds) {
-		const entry = manager.getEntry(id);
-		if (entry?.type !== "message") return;
-		if (entry.message.role !== "user" && entry.message.role !== "assistant" && entry.message.role !== "toolResult") return;
-		messages.push(structuredClone(entry.message));
+		const projected = effective.get(id);
+		if (!projected?.length) return;
+		for (const message of projected) {
+			if (message.role !== "user" && message.role !== "assistant" && message.role !== "toolResult") return;
+			messages.push(structuredClone(message));
+		}
 	}
 	return messages;
 }
@@ -158,8 +179,9 @@ export function buildReviewContext(sessionManager: Pick<SessionManager, "getBran
 	}
 	const stateEntry = stateIndex >= 0 ? branch[stateIndex] : undefined;
 	const state = stateEntry?.type === "custom" ? parseState(stateEntry.data) : undefined;
-	const effectiveEntries = sessionManager.buildContextEntries();
-	const effectiveIds = new Set(effectiveEntries.map((entry) => entry.id));
+	const projection = project(branch);
+	const effectiveIds = new Set(projection.filter((entry) => entry.messages.length).map((entry) => entry.sourceEntry.id));
+	const effectiveMessages = new Map(projection.map((entry) => [entry.sourceEntry.id, entry.messages]));
 	const compactionAfterState = stateIndex >= 0 && branch.slice(stateIndex + 1).some((entry) => entry.type === "compaction");
 	const records = state
 		? [...state.blocks, ...collectBlocks(branch.slice(stateIndex + 1), sessionFile)]
@@ -170,18 +192,25 @@ export function buildReviewContext(sessionManager: Pick<SessionManager, "getBran
 	const blocks: ReviewBlock[] = records.map((record) => {
 		let status = record.status;
 		if (status !== "pi-compacted") {
-			const represented = record.currentEntryIds.some((id) => effectiveIds.has(id));
+			const represented = record.currentEntryIds.length > 0 && record.currentEntryIds.every((id) => effectiveIds.has(id));
 			if ((status !== "dropped" && !represented) || (status === "dropped" && compactionAfterState)) status = "pi-compacted";
 		}
-		let source = record.source;
-		let messages = loadBlockMessages(source, managers);
-		if (!messages && status === "keep" && sessionFile && record.currentEntryIds.length > 0) {
-			source = { sessionFile, entryIds: record.currentEntryIds };
-			messages = loadBlockMessages(source, managers);
-		}
+		// A kept block's newest effective branch owns restoration provenance, including later edits.
+		const source = status === "keep" && sessionFile
+			? { sessionFile, entryIds: record.currentEntryIds }
+			: record.source;
+		// Ordinary keep/view/summarize uses only effective messages, never raw originals.
+		const messages = status === "keep"
+			? record.currentEntryIds.flatMap((id) => effectiveMessages.get(id) ?? []).filter((message): message is BlockMessage =>
+				message.role === "user" || message.role === "assistant" || message.role === "toolResult").map((message) => structuredClone(message))
+			: status === "pi-compacted" ? undefined : loadBlockMessages(source, managers);
 		const description = messages ? describe(messages) : undefined;
+		const summaryText = status === "compacted"
+			? record.currentEntryIds.flatMap((id) => effectiveMessages.get(id) ?? []).map((message) => contentText("content" in message ? message.content : undefined, false)).join("\n")
+			: undefined;
 		return {
 			...record,
+			summary: summaryText === undefined ? undefined : summaryText.match(/^The user compacted an earlier conversation block into this context:\n\n<summary>\n([\s\S]*)\n<\/summary>$/)?.[1] ?? summaryText,
 			source,
 			status,
 			prompt: description?.prompt ?? "[Original session unavailable]",
@@ -192,15 +221,21 @@ export function buildReviewContext(sessionManager: Pick<SessionManager, "getBran
 		};
 	});
 
-	const managedIds = new Set(blocks.flatMap((block) => block.currentEntryIds));
-	const prefixMessages = effectiveEntries.flatMap((entry): ContextMessage[] => {
-		if (managedIds.has(entry.id)) return [];
-		if (entry.type === "message" && ["user", "assistant", "toolResult"].includes(entry.message.role)) return [];
-		if (entry.type === "custom" && entry.customType === STATE_TYPE) return [];
-		if (entry.type === "custom_message" && entry.customType === "system-reminder") return [];
-		return convertToLlm(sessionEntryToContextMessages(entry)).map((message) => structuredClone(message));
+	const owners = new Map(blocks.flatMap((block) => block.currentEntryIds.map((id) => [id, block.id] as const)));
+	const sequence: ReviewContext["sequence"] = projection.flatMap(({ sourceEntry, messages }) => {
+		if (sourceEntry.type === "custom_message" && sourceEntry.customType === "system-reminder") return [];
+		return convertToLlm(messages).map((message) => ({ blockId: owners.get(sourceEntry.id), message: structuredClone(message) }));
 	});
-	return { blocks, prefixMessages };
+	// Dropped and wholly compacted blocks have no canonical entry. Retain their UI/restoration slot.
+	for (let index = blocks.length - 1; index >= 0; index--) {
+		const block = blocks[index]!;
+		if (sequence.some((item) => item.blockId === block.id)) continue;
+		const nextIds = new Set(blocks.slice(index + 1).map((next) => next.id));
+		const next = sequence.findIndex((item) => item.blockId && nextIds.has(item.blockId));
+		sequence.splice(next < 0 ? sequence.length : next, 0, { blockId: block.id });
+	}
+	const prefixMessages = sequence.flatMap((item) => !item.blockId && item.message ? [item.message] : []);
+	return { blocks, prefixMessages, sequence };
 }
 
 export function blockIsModified(block: ReviewBlock): boolean {

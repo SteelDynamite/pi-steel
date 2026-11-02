@@ -82,10 +82,6 @@ const STYLE_IDS: Exclude<StyleId, "random">[] = ["aurora", "pulse", "ripples", "
 const RESET = "\x1b[0m";
 const DIM = "\x1b[2m";
 
-function isChildSession(): boolean {
-	return process.env.PI_ORCHESTRATED_CHILD === "1";
-}
-
 function color(text: string, rgb: readonly number[]): string {
 	return `\x1b[38;2;${rgb[0] ?? 255};${rgb[1] ?? 255};${rgb[2] ?? 255}m${text}${RESET}`;
 }
@@ -203,14 +199,16 @@ function setWidget(ctx: ExtensionContext, config: Config, lines: string[]): void
 }
 
 export default function (pi: ExtensionAPI) {
+	const childSession = process.env.PI_ORCHESTRATED_CHILD === "1";
+
 	let config = DEFAULT_CONFIG;
 	let timer: ReturnType<typeof setInterval> | undefined;
 	let delayTimer: ReturnType<typeof setTimeout> | undefined;
 	let startedAt = 0;
 	let style: Exclude<StyleId, "random"> = "aurora";
-	const childSession = isChildSession();
 
 	const stop = (ctx?: ExtensionContext) => {
+		if (childSession) return;
 		if (delayTimer) clearTimeout(delayTimer);
 		if (timer) clearInterval(timer);
 		delayTimer = undefined;
@@ -218,19 +216,9 @@ export default function (pi: ExtensionAPI) {
 		ctx?.ui.setWidget(WIDGET_ID, undefined);
 	};
 
-	const apply = (ctx: ExtensionContext) => {
-		ctx.ui.setWorkingIndicator(undefined);
-	};
-
-	pi.on("session_start", async (_event, ctx) => {
-		config = await loadConfig();
-		if (!childSession) apply(ctx);
-	});
-
 	pi.on("agent_start", async (_event, ctx) => {
 		if (childSession) return;
 		config = await loadConfig();
-		apply(ctx);
 		stop(ctx);
 		if (!config.enabled) return;
 		style = config.style === "random" ? STYLE_IDS[Math.floor(Math.random() * STYLE_IDS.length)]! : config.style;
@@ -249,12 +237,15 @@ export default function (pi: ExtensionAPI) {
 	pi.registerCommand("mindful", {
 		description: "Configure mindful breathing: status, on/off, exercise, style, delay, placement.",
 		handler: async (args, ctx) => {
+			if (childSession) {
+				ctx.ui.notify("Mindful is disabled in orchestrated child sessions.", "info");
+				return;
+			}
 			config = await loadConfig();
 			const parts = args.trim().toLowerCase().split(/\s+/).filter(Boolean);
 			const fail = (message: string) => ctx.ui.notify(message, "error");
 			const save = async () => {
 				await saveConfig(config);
-				apply(ctx);
 				ctx.ui.notify(describe(config), "info");
 			};
 

@@ -28,10 +28,8 @@ export function getFinalOutput(messages: Message[]): string {
 	for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
 		const message = messages[messageIndex];
 		if (message.role !== "assistant") continue;
-		for (let partIndex = message.content.length - 1; partIndex >= 0; partIndex--) {
-			const part = message.content[partIndex];
-			if (part.type === "text" && part.text.trim()) return part.text;
-		}
+		const text = message.content.filter((part) => part.type === "text" && part.text.trim()).map((part) => (part as { text: string }).text).join("\n");
+		if (text) return text;
 	}
 	return "";
 }
@@ -42,8 +40,8 @@ export function isFailedResult(result: Pick<SingleResult, "exitCode" | "stopReas
 
 export function getResultOutput(result: SingleResult): string {
 	const warning = result.warning ? `Warning: ${result.warning}\n\n` : "";
-	if (isFailedResult(result)) return warning + (result.errorMessage || result.stderr || getFinalOutput(result.messages) || "(no output)");
 	const nextIntent = result.nextSessionIntent ? `\n\nNext call to this subagent should use session: "${result.nextSessionIntent}"` : "";
+	if (isFailedResult(result)) return warning + (result.errorMessage || result.stderr || getFinalOutput(result.messages) || "(no output)") + nextIntent;
 	return warning + (getFinalOutput(result.messages) || "(no output)") + nextIntent;
 }
 

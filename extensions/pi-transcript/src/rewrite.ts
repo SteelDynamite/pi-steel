@@ -24,7 +24,7 @@ export function populateRewrittenSession(
 	model: Pick<AssistantBlockMessage, "api" | "provider" | "model">,
 	sessionName?: string,
 ): RewriteState {
-	const hasAssistant = review.prefixMessages.some((message) => message.role === "assistant") || review.blocks.some((block) =>
+	const hasAssistant = review.sequence.some((item) => item.message?.role === "assistant") || review.blocks.some((block) =>
 		actionFor(block) === "keep" && block.messages?.some((message) => message.role === "assistant"),
 	);
 	if (!hasAssistant) {
@@ -47,37 +47,44 @@ export function populateRewrittenSession(
 		sessionManager.resetLeaf();
 	}
 	if (sessionName) sessionManager.appendSessionInfo(sessionName);
-	for (const message of review.prefixMessages) sessionManager.appendMessage(structuredClone(message));
-
-	const blocks: StoredBlock[] = [];
-	for (const block of review.blocks) {
-		const action = actionFor(block);
-		let status = block.status;
-		let currentEntryIds: string[] = [];
-		let summary = block.summary;
-
-		if (action === "keep") {
-			if (!block.messages) throw new Error(`Original content is unavailable for block ${block.id}`);
-			currentEntryIds = block.messages.map((message) => sessionManager.appendMessage(structuredClone(message)));
-			status = "keep";
-			summary = undefined;
-		} else if (action === "compact") {
-			summary = block.status === "compacted" && block.choice === "compact" ? block.summary : summaries.get(block.id);
-			if (!summary) throw new Error(`No summary is available for block ${block.id}`);
-			currentEntryIds = [sessionManager.appendCustomMessageEntry(
-				SUMMARY_TYPE,
-				`The user compacted an earlier conversation block into this context:\n\n<summary>\n${summary}\n</summary>`,
-				true,
-				{ blockId: block.id },
-			)];
-			status = "compacted";
-		} else if (action === "drop") {
-			status = "dropped";
-		} else {
-			status = "pi-compacted";
+	const blocks: StoredBlock[] = review.blocks.map((block) => ({
+		id: block.id, status: block.status, source: block.source, summary: block.summary, currentEntryIds: [],
+	}));
+	const records = new Map(blocks.map((block) => [block.id, block]));
+	const originals = new Map(review.blocks.map((block) => [block.id, block]));
+	const emitted = new Set<string>();
+	for (const item of review.sequence) {
+		const original = item.blockId ? originals.get(item.blockId) : undefined;
+		const block = item.blockId ? records.get(item.blockId) : undefined;
+		if (!block || !original) {
+			if (item.message) sessionManager.appendMessage(structuredClone(item.message));
+			continue;
 		}
-
-		blocks.push({ id: block.id, status, source: block.source, summary, currentEntryIds });
+		const action = actionFor(original);
+		if (action === "keep" && original.status === "keep" || action === undefined) {
+			// Copy each canonical message in place, including a partial read-only tail.
+			if (item.message) block.currentEntryIds.push(sessionManager.appendMessage(structuredClone(item.message)));
+			continue;
+		}
+		if (emitted.has(block.id)) continue;
+		emitted.add(block.id);
+		if (action === "keep") {
+			if (!original.messages) throw new Error(`Original content is unavailable for block ${block.id}`);
+			block.currentEntryIds = original.messages.map((message) => sessionManager.appendMessage(structuredClone(message)));
+			block.status = "keep";
+			block.summary = undefined;
+		} else if (action === "compact") {
+			block.summary = original.status === "compacted" ? original.summary : summaries.get(block.id);
+			if (!block.summary) throw new Error(`No summary is available for block ${block.id}`);
+			block.currentEntryIds = [sessionManager.appendCustomMessageEntry(
+				SUMMARY_TYPE,
+				`The user compacted an earlier conversation block into this context:\n\n<summary>\n${block.summary}\n</summary>`,
+				true, { blockId: block.id },
+			)];
+			block.status = "compacted";
+		} else if (action === "drop") {
+			block.status = "dropped";
+		}
 	}
 
 	const state: RewriteState = { version: 1, blocks };

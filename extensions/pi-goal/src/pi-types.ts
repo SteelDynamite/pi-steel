@@ -6,7 +6,7 @@ export type SessionMessage =
 	| Message
 	| { role: "system"; content: unknown }
 	| { role: "custom"; customType: string; content: MessageContent }
-	| { role: "bashExecution"; command: string; output: string; excludeFromContext?: boolean }
+	| { role: "bashExecution"; command: string; output: string; exitCode?: number; cancelled: boolean; truncated?: boolean; excludeFromContext?: boolean }
 	| { role: "branchSummary"; summary: string }
 	| { role: "compactionSummary"; summary: string };
 
@@ -34,11 +34,11 @@ export type ExtensionContext = {
 	signal?: AbortSignal;
 	hasPendingMessages(): boolean;
 	modelRegistry: {
-		complete(
+		streamSimple(
 			model: Model<Api>,
 			context: { systemPrompt?: string; messages: Message[] },
 			options: { signal?: AbortSignal; maxTokens?: number; cacheRetention?: "none" | "short" | "long"; sessionId?: string },
-		): Promise<AssistantMessage>;
+		): { result(): Promise<AssistantMessage> };
 	};
 	sessionManager: {
 		getBranch(): SessionEntry[];
@@ -75,7 +75,12 @@ export type ExtensionAPI = {
 	on(
 		event: "turn_end",
 		handler: (
-			event: { outcome: "completed" | "aborted" | "error"; message: SessionMessage; entries: SessionBoundaryDraft[] },
+			event: {
+				outcome: "completed" | "aborted" | "error";
+				message: SessionMessage;
+				entries: SessionBoundaryDraft[];
+				context: { contextMessages: SessionMessage[] };
+			},
 			ctx: ExtensionContext,
 		) =>
 			| void
@@ -89,5 +94,6 @@ export type ExtensionAPI = {
 			ctx: ExtensionContext,
 		) => void | Promise<void>,
 	): void;
+	on(event: "agent_settled", handler: (event: { aborted: boolean }, ctx: ExtensionContext) => void | Promise<void>): void;
 	on(event: "session_shutdown", handler: (event: unknown, ctx: ExtensionContext) => void | Promise<void>): void;
 };

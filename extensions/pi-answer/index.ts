@@ -6,9 +6,10 @@
  */
 
 import { stripVTControlCharacters } from "node:util";
-import { complete, type Api, type Model, type UserMessage } from "@earendil-works/pi-ai";
+import { complete, type Api, type Model, type UserMessage, type AssistantMessage, type Context } from "@earendil-works/pi-ai";
 import {
 	CancellableLoader,
+	CURSOR_MARKER,
 	type Component,
 	Editor,
 	type EditorTheme,
@@ -34,8 +35,9 @@ interface ExtensionUI {
 
 interface ModelRegistry {
 	find(provider: string, modelId: string): Model<Api> | undefined;
+	streamSimple?(model: Model<Api>, context: Context, options: { signal: AbortSignal }): { result(): Promise<AssistantMessage> };
 	getApiKeyAndHeaders(model: Model<Api>): Promise<
-		| { ok: true; apiKey?: string; headers?: Record<string, string> }
+		| { ok: true; apiKey?: string; headers?: Record<string, string>; baseUrl?: string; env?: Record<string, string> }
 		| { ok: false; error: string }
 	>;
 }
@@ -57,6 +59,7 @@ interface SessionEntry {
 }
 
 interface ExtensionContext {
+	signal?: AbortSignal;
 	hasUI: boolean;
 	ui: ExtensionUI;
 	modelRegistry: ModelRegistry;
@@ -64,6 +67,7 @@ interface ExtensionContext {
 }
 
 interface ExtensionAPI {
+	on(event: "session_shutdown", handler: () => void): void;
 	sendMessage(
 		message: { customType: string; content: string; display?: boolean },
 		options?: { triggerTurn?: boolean },
@@ -133,8 +137,6 @@ type ExtractionUiResult = ExtractionResult | ExtractionFailure | null;
 class ExtractionLoader implements Component {
 	private readonly loader: CancellableLoader;
 	private readonly theme: ExtensionTheme;
-	private cachedWidth?: number;
-	private cachedLines?: string[];
 
 	constructor(tui: TUI, theme: ExtensionTheme, message: string) {
 		this.theme = theme;
@@ -163,14 +165,10 @@ class ExtractionLoader implements Component {
 	}
 
 	invalidate(): void {
-		this.cachedWidth = undefined;
-		this.cachedLines = undefined;
 		this.loader.invalidate();
 	}
 
 	render(width: number): string[] {
-		if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
-
 		const boxWidth = Math.max(20, Math.min(width, 120));
 		const contentWidth = Math.max(1, boxWidth - 4);
 		const border = (s: string) => this.theme.fg("border", s);
@@ -187,10 +185,19 @@ class ExtractionLoader implements Component {
 			padToWidth(border("╰" + "─".repeat(boxWidth - 2) + "╯")),
 		];
 
-		this.cachedWidth = width;
-		this.cachedLines = lines;
 		return lines;
 	}
+}
+
+async function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T | undefined> {
+	if (signal.aborted) return undefined;
+	let abort: () => void = () => {};
+	const cancelled = new Promise<undefined>((resolve) => {
+		abort = () => resolve(undefined);
+		signal.addEventListener("abort", abort, { once: true });
+	});
+	try { return await Promise.race([promise, cancelled]); }
+	finally { signal.removeEventListener("abort", abort); }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -245,22 +252,28 @@ async function extractQuestions(
 	lastAssistantText: string,
 	signal: AbortSignal,
 ): Promise<ExtractionUiResult> {
-	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-	if (!auth.ok) return { error: auth.error };
-
 	const userMessage: UserMessage = {
 		role: "user",
 		content: [{ type: "text", text: lastAssistantText }],
 		timestamp: Date.now(),
 	};
 
-	const response = await complete(
-		model,
-		{ systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
-		{ apiKey: auth.apiKey, headers: auth.headers, signal },
-	);
+	const context = { systemPrompt: SYSTEM_PROMPT, messages: [userMessage] };
+	let response: AssistantMessage;
+	if (signal.aborted) return null;
+	if (ctx.modelRegistry.streamSimple) {
+		// The host owns request-time auth, endpoint/environment resolution, and virtual routing.
+		response = await ctx.modelRegistry.streamSimple(model, context, { signal }).result();
+	} else {
+		// Older hosts expose only resolved auth plus the legacy completion transport.
+		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+		if (signal.aborted) return null;
+		if (!auth.ok) return { error: auth.error };
+		const { ok: _ok, baseUrl, ...options } = auth;
+		response = await complete(baseUrl ? { ...model, baseUrl } : model, context, { ...options, signal });
+	}
 
-	if (response.stopReason === "aborted") return null;
+	if (signal.aborted || response.stopReason === "aborted") return null;
 	if (response.stopReason === "error") {
 		return { error: response.errorMessage ?? "Model returned an error." };
 	}
@@ -327,7 +340,9 @@ async function answerWithDialogFlow(
 	ctx: ExtensionContext,
 	pi: ExtensionAPI,
 	extractionResult: ExtractionUiResult,
+	signal: AbortSignal,
 ): Promise<void> {
+	if (signal.aborted) return;
 	if (!isUsableExtractionResult(extractionResult)) {
 		reportExtractionProblem(ctx, extractionResult);
 		return;
@@ -336,10 +351,11 @@ async function answerWithDialogFlow(
 	const answers: string[] = [];
 	for (let i = 0; i < extractionResult.questions.length; i++) {
 		const question = extractionResult.questions[i];
-		const answer = await ctx.ui.editor(
+		const answer = await untilAborted(ctx.ui.editor(
 			buildRpcQuestionTitle(question, i, extractionResult.questions.length),
 			question.recommendedAnswer ?? "",
-		);
+		), signal);
+		if (signal.aborted) return;
 		if (!answer?.trim()) {
 			ctx.ui.notify("Cancelled", "info");
 			return;
@@ -393,6 +409,12 @@ class QnAComponent implements Component {
 		};
 	}
 
+	get focused(): boolean { return this.editor.focused; }
+	set focused(value: boolean) {
+		this.editor.focused = value;
+		this.invalidate();
+	}
+
 	private saveCurrentAnswer(): void {
 		this.answers[this.currentIndex] = this.editor.getText();
 	}
@@ -422,17 +444,7 @@ class QnAComponent implements Component {
 	private submit(): void {
 		this.saveCurrentAnswer();
 
-		const parts: string[] = [];
-		for (let i = 0; i < this.questions.length; i++) {
-			const q = this.questions[i];
-			const a = this.answers[i]?.trim() || "(no answer)";
-			parts.push(`Q: ${q.question}`);
-			if (q.context) parts.push(`> ${q.context}`);
-			parts.push(`A: ${a}`);
-			parts.push("");
-		}
-
-		this.onDone(parts.join("\n").trim());
+		this.onDone(compileAnswers(this.questions, this.answers));
 	}
 
 	private cancel(): void {
@@ -516,13 +528,24 @@ class QnAComponent implements Component {
 		if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
 
 		const lines: string[] = [];
-		const boxWidth = Math.min(width - 4, 120);
+		// At tiny widths, reserve every column for the active editor rather than clip its cursor.
+		if (width < 12) {
+			if (width <= 0) return [];
+			return [
+				truncateToWidth(this.showingConfirmation ? "Submit? y/n" : this.questions[this.currentIndex].question, width),
+				// The host editor needs two columns for a wide grapheme plus one for its cursor.
+				...(width < 3
+					? [(this.focused ? CURSOR_MARKER : "") + GHOST_CURSOR]
+					: this.editor.render(width).slice(1, -1)),
+			];
+		}
+		const boxWidth = Math.min(width, 120);
 		const contentWidth = boxWidth - 4;
 		const horizontalLine = (count: number) => "─".repeat(count);
-		const padToWidth = (line: string): string => line + " ".repeat(Math.max(0, width - visibleWidth(line)));
+		const padToWidth = (line: string): string => truncateToWidth(line, width, "", true);
 		const emptyBoxLine = (): string => this.dim("│") + " ".repeat(boxWidth - 2) + this.dim("│");
 		const boxLine = (content: string, leftPad = 2): string => {
-			const paddedContent = " ".repeat(leftPad) + content;
+			const paddedContent = " ".repeat(leftPad) + truncateToWidth(content, Math.max(0, boxWidth - leftPad - 2), "");
 			const rightPad = Math.max(0, boxWidth - visibleWidth(paddedContent) - 2);
 			return this.dim("│") + paddedContent + " ".repeat(rightPad) + this.dim("│");
 		};
@@ -556,7 +579,7 @@ class QnAComponent implements Component {
 		lines.push(padToWidth(emptyBoxLine()));
 
 		const answerPrefix = this.bold("A: ");
-		const editorWidth = contentWidth - 7;
+		const editorWidth = Math.max(1, contentWidth - 4);
 		const recommendation = this.getCurrentRecommendation();
 		const editorLines = recommendation
 			? renderGhostSuggestionLines(this.editor.render(editorWidth), editorWidth, recommendation)
@@ -587,13 +610,17 @@ function renderGhostSuggestionLines(lines: string[], width: number, text: string
 	if (contentLineIndex === -1) return lines;
 
 	const ghost = `${GHOST_STYLE}${truncateToWidth(text.replace(/\n/g, " "), Math.max(0, width - 1))}${ANSI_RESET}`;
-	const rendered = GHOST_CURSOR + ghost;
+	const rendered = (lines[contentLineIndex].includes(CURSOR_MARKER) ? CURSOR_MARKER : "") + GHOST_CURSOR + ghost;
 	return lines.map((line, index) =>
 		index === contentLineIndex ? rendered + " ".repeat(Math.max(0, width - visibleWidth(rendered))) : line,
 	);
 }
 
 export default function (pi: ExtensionAPI) {
+	const pending = new Set<AbortController>();
+	pi.on("session_shutdown", () => {
+		for (const controller of pending) controller.abort();
+	});
 	const answerHandler = async (ctx: ExtensionContext) => {
 		if (!ctx.hasUI) {
 			ctx.ui.notify("answer requires interactive mode", "error");
@@ -633,44 +660,77 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.notify(`Required model unavailable: ${EXTRACTION_MODEL_PROVIDER}/${EXTRACTION_MODEL_ID}`, "error");
 			return;
 		}
-		const extractionResult = await ctx.ui.custom<ExtractionUiResult | undefined>((tui, theme, _kb, done) => {
-			const loader = new ExtractionLoader(tui, theme, `Extracting questions using ${formatModel(extractionModel)}...`);
-			loader.onAbort = () => done(null);
+		const controller = new AbortController();
+		const signal = controller.signal;
+		const abort = () => controller.abort();
+		const parentSignal = ctx.signal;
+		parentSignal?.addEventListener("abort", abort, { once: true });
+		if (parentSignal?.aborted) controller.abort();
+		pending.add(controller);
+		try {
+			if (signal.aborted) return;
+			const extractionResult = await ctx.ui.custom<ExtractionUiResult | undefined>((tui, theme, _kb, done) => {
+				const loader = new ExtractionLoader(tui, theme, `Extracting questions using ${formatModel(extractionModel)}...`);
+				let settled = false;
+				const finish = (result: ExtractionUiResult) => {
+					if (settled) return;
+					settled = true;
+					signal.removeEventListener("abort", cancel);
+					done(result);
+				};
+				const cancel = () => finish(null);
+				signal.addEventListener("abort", cancel, { once: true });
+				loader.onAbort = abort;
 
-			extractQuestions(ctx, extractionModel, lastAssistantText, loader.signal)
-				.then(done)
-				.catch((error) => done({ error: error instanceof Error ? error.message : String(error) }));
-			return loader;
-		});
+				extractQuestions(ctx, extractionModel, lastAssistantText, signal)
+					.then(finish)
+					.catch((error) => finish({ error: error instanceof Error ? error.message : String(error) }));
+				return loader;
+			});
+			if (signal.aborted) return;
 
-		if (extractionResult === undefined) {
-			ctx.ui.notify(`Extracting questions using ${formatModel(extractionModel)}...`, "info");
-			const fallbackController = new AbortController();
-			const fallbackResult = await extractQuestions(ctx, extractionModel, lastAssistantText, fallbackController.signal);
-			await answerWithDialogFlow(ctx, pi, fallbackResult);
-			return;
+			if (extractionResult === undefined) {
+				ctx.ui.notify(`Extracting questions using ${formatModel(extractionModel)}...`, "info");
+				const fallbackResult = await untilAborted(extractQuestions(ctx, extractionModel, lastAssistantText, signal), signal);
+				if (signal.aborted) return;
+				await answerWithDialogFlow(ctx, pi, fallbackResult ?? null, signal);
+				return;
+			}
+
+			if (!isUsableExtractionResult(extractionResult)) {
+				reportExtractionProblem(ctx, extractionResult);
+				return;
+			}
+
+			const answersResult = await ctx.ui.custom<string | null | undefined>((tui, _theme, _kb, done) => {
+				let settled = false;
+				const finish = (result: string | null) => {
+					if (settled) return;
+					settled = true;
+					signal.removeEventListener("abort", cancel);
+					done(result);
+				};
+				const cancel = () => finish(null);
+				signal.addEventListener("abort", cancel, { once: true });
+				return new QnAComponent(extractionResult.questions, tui, finish);
+			});
+			if (signal.aborted) return;
+
+			if (answersResult === undefined) {
+				await answerWithDialogFlow(ctx, pi, extractionResult, signal);
+				return;
+			}
+
+			if (answersResult === null) {
+				ctx.ui.notify("Cancelled", "info");
+				return;
+			}
+
+			sendAnswers(pi, answersResult);
+		} finally {
+			pending.delete(controller);
+			parentSignal?.removeEventListener("abort", abort);
 		}
-
-		if (!isUsableExtractionResult(extractionResult)) {
-			reportExtractionProblem(ctx, extractionResult);
-			return;
-		}
-
-		const answersResult = await ctx.ui.custom<string | null | undefined>((tui, _theme, _kb, done) => {
-			return new QnAComponent(extractionResult.questions, tui, done);
-		});
-
-		if (answersResult === undefined) {
-			await answerWithDialogFlow(ctx, pi, extractionResult);
-			return;
-		}
-
-		if (answersResult === null) {
-			ctx.ui.notify("Cancelled", "info");
-			return;
-		}
-
-		sendAnswers(pi, answersResult);
 	};
 
 	pi.registerCommand("answer", {

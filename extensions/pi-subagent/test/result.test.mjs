@@ -36,6 +36,7 @@ test("getResultOutput includes warnings, final output, next intent, and errors",
 		messages: [assistant([{ type: "text", text: "done" }])],
 	}), 'Warning: careful\n\ndone\n\nNext call to this subagent should use session: "resume"');
 	assert.equal(getResultOutput({ exitCode: 1, errorMessage: "boom", stderr: "stderr", messages: [] }), "boom");
+	assert.match(getResultOutput({ exitCode: 1, errorMessage: "boom", nextSessionIntent: "new", messages: [] }), /session: "new"/);
 });
 
 test("display helpers recognize only singular subagent calls", () => {

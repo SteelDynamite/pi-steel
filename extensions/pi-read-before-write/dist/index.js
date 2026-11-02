@@ -1,271 +1,178 @@
 import { createHash } from "node:crypto";
-import { promises as fs } from "node:fs";
+import { constants, promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-const config = {
-    requireReadBeforeEdit: true,
-    requireReadBeforeExistingWrite: true,
-    allowNewFileWriteWithoutRead: true,
-    hashAlgorithm: "sha256",
-    maxFingerprints: 100,
-    maxFingerprintBytes: 1024 * 1024,
-};
+import { createReadToolDefinition, createEditToolDefinition, createWriteToolDefinition, detectSupportedImageMimeTypeFromFile, } from "@earendil-works/pi-coding-agent";
+// Negative records and aliases share the same metadata budget as authorization.
 class FingerprintCache {
-    maxEntries;
-    maxBytes;
-    absolutePathAliases = new Map();
     entries = new Map();
-    totalBytes = 0;
-    constructor(maxEntries, maxBytes) {
-        this.maxEntries = maxEntries;
-        this.maxBytes = maxBytes;
-    }
-    get(key) {
-        const value = this.entries.get(key);
-        if (!value)
-            return undefined;
-        this.entries.delete(key);
-        this.entries.set(key, value);
+    aliases = new Map();
+    get(key, alias) {
+        const value = this.entries.get(key) ?? this.entries.get(this.aliases.get(alias) ?? "");
+        if (value) {
+            const actual = this.entries.has(key) ? key : this.aliases.get(alias);
+            this.entries.delete(actual);
+            this.entries.set(actual, value);
+        }
         return value;
     }
-    set(key, value) {
-        const existing = this.entries.get(key);
-        if (existing) {
-            this.totalBytes -= fingerprintSize(existing);
-            this.entries.delete(key);
-        }
-        this.entries.set(key, value);
-        this.totalBytes += fingerprintSize(value);
-        this.evictIfNeeded();
-    }
-    delete(key) {
-        const existing = this.entries.get(key);
-        if (!existing)
-            return;
-        this.totalBytes -= fingerprintSize(existing);
+    set(key, alias, hash) {
+        const value = this.entries.get(key) ?? { aliases: new Set() };
+        value.hash = hash;
         this.entries.delete(key);
-    }
-    evictIfNeeded() {
-        while (this.entries.size > this.maxEntries || this.totalBytes > this.maxBytes) {
-            const oldest = this.entries.entries().next().value;
-            if (!oldest)
+        this.entries.set(key, value);
+        const previous = this.aliases.get(alias);
+        if (previous)
+            this.entries.get(previous)?.aliases.delete(alias);
+        this.aliases.delete(alias);
+        this.aliases.set(alias, key);
+        value.aliases.add(alias);
+        while (this.entries.size > 100 || this.aliases.size > 100 || this.bytes() > 1024 * 1024) {
+            const oldest = this.entries.keys().next().value;
+            if (oldest === undefined)
                 break;
-            const [key, value] = oldest;
-            this.totalBytes -= fingerprintSize(value);
-            this.entries.delete(key);
+            for (const alias of this.entries.get(oldest).aliases)
+                this.aliases.delete(alias);
+            this.entries.delete(oldest);
         }
     }
-}
-function fingerprintSize(fingerprint) {
-    return (Buffer.byteLength(fingerprint.path) +
-        Buffer.byteLength(fingerprint.displayPath) +
-        Buffer.byteLength(fingerprint.hash) +
-        16);
-}
-const fileMutationQueues = new Map();
-const localQueues = new Map();
-let registrationQueue = Promise.resolve();
-const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;
-function normalizeToolPath(inputPath) {
-    let normalized = inputPath.replace(UNICODE_SPACES, " ");
-    if (normalized.startsWith("@")) {
-        normalized = normalized.slice(1);
+    bytes() {
+        let total = 0;
+        for (const [key, value] of this.entries) {
+            total += Buffer.byteLength(key) + (value.hash?.length ?? 0) + 32;
+            for (const alias of value.aliases)
+                total += Buffer.byteLength(alias) + 16;
+        }
+        return total;
     }
-    if (normalized === "~") {
-        return os.homedir();
-    }
-    if (normalized.startsWith("~/") || (process.platform === "win32" && normalized.startsWith("~\\"))) {
-        return path.join(os.homedir(), normalized.slice(2));
-    }
-    if (/^file:\/\//.test(normalized)) {
-        return fileURLToPath(normalized);
-    }
-    return normalized;
 }
-function resolveAbsolutePath(inputPath, cwd) {
-    const cleaned = normalizeToolPath(inputPath);
-    return path.isAbsolute(cleaned) ? path.resolve(cleaned) : path.resolve(cwd, cleaned);
+function missing(error) {
+    return !!error && typeof error === "object" && "code" in error &&
+        (error.code === "ENOENT" || error.code === "ENOTDIR");
 }
-export async function resolveTrackedPath(inputPath, cwd) {
-    const absolute = resolveAbsolutePath(inputPath, cwd);
+// Resolve missing suffixes through existing parents, including dangling links.
+// This is identity tracking, not an atomic filesystem boundary.
+async function canonicalPath(absolute, links = 0) {
+    if (links > 40)
+        throw new Error("Too many symbolic links");
     try {
         return await fs.realpath(absolute);
     }
-    catch {
+    catch (error) {
+        if (!missing(error))
+            throw error;
+    }
+    try {
+        const target = await fs.readlink(absolute);
+        return canonicalPath(path.resolve(path.dirname(absolute), target), links + 1);
+    }
+    catch (error) {
+        if (!missing(error) && !(typeof error === "object" && error !== null && "code" in error && error.code === "EINVAL"))
+            throw error;
+    }
+    const parent = path.dirname(absolute);
+    if (parent === absolute)
         return absolute;
+    return path.join(await canonicalPath(parent, links), path.basename(absolute));
+}
+/** Compatibility helper. Runtime guards receive native paths from Pi's own resolver. */
+export async function resolveTrackedPath(input, cwd) {
+    let normalized = input.replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g, " ").replace(/^@/, "");
+    if (process.platform === "win32" && !normalized.includes("\\")) {
+        const drive = normalized.match(/^\/(?:mnt\/|cygdrive\/)?([a-z])(?:\/(.*))?$/i);
+        if (drive)
+            normalized = `${drive[1].toUpperCase()}:\\${(drive[2] ?? "").replaceAll("/", "\\")}`;
     }
+    if (normalized === "~")
+        normalized = os.homedir();
+    else if (normalized.startsWith("~/") || (process.platform === "win32" && normalized.startsWith("~\\")))
+        normalized = path.join(os.homedir(), normalized.slice(2));
+    else if (/^file:\/\//.test(normalized))
+        normalized = fileURLToPath(normalized);
+    return canonicalPath(path.resolve(cwd, normalized));
 }
-function getFingerprint(fingerprints, trackedPath, absolutePath) {
-    return fingerprints.get(trackedPath) ?? fingerprints.get(fingerprints.absolutePathAliases.get(absolutePath) ?? "");
+function hash(bytes) {
+    return createHash("sha256").update(bytes).digest("hex");
 }
-async function pathExists(filePath) {
+async function guard(cache, absolute, allowNew, bytes, expected) {
+    const key = await canonicalPath(absolute);
+    const fingerprint = cache.get(key, "");
+    let current;
     try {
-        await fs.access(filePath);
-        return true;
+        current = bytes ?? await fs.readFile(absolute);
     }
     catch (error) {
-        if (isMissingPathError(error))
-            return false;
-        throw error;
+        if (!missing(error))
+            throw error;
+        if (fingerprint || cache.get(key, absolute))
+            throw new Error(`Blocked stale write: file was deleted since the last read: ${absolute}`);
+        if (allowNew)
+            return key;
+        throw new Error(`Blocked stale write: file has not been read in this session. Read it before editing: ${absolute}`);
     }
-}
-async function hashFile(filePath) {
-    const bytes = await fs.readFile(filePath);
-    return {
-        hash: createHash(config.hashAlgorithm).update(bytes).digest("hex"),
-        size: bytes.byteLength,
-    };
-}
-async function recordFingerprint(fingerprints, inputPath, cwd) {
-    const absolutePath = resolveAbsolutePath(inputPath, cwd);
-    const trackedPath = await resolveTrackedPath(inputPath, cwd);
-    try {
-        const { hash, size } = await hashFile(trackedPath);
-        const fingerprint = {
-            path: trackedPath,
-            displayPath: inputPath,
-            hash,
-            size,
-            recordedAt: Date.now(),
-        };
-        fingerprints.set(trackedPath, fingerprint);
-        fingerprints.absolutePathAliases.set(absolutePath, trackedPath);
-        return fingerprint;
+    if (!fingerprint)
+        throw new Error(`Blocked stale write: file has not been read in this session. Read it before editing: ${absolute}`);
+    const currentHash = hash(current);
+    if (fingerprint.hash !== currentHash || (expected && (expected.key !== key || expected.hash !== currentHash))) {
+        throw new Error(`Blocked stale write: file changed on disk since the last read. Read it again before editing: ${absolute}`);
     }
-    catch {
-        fingerprints.delete(trackedPath);
-        const alias = fingerprints.absolutePathAliases.get(absolutePath);
-        if (alias)
-            fingerprints.delete(alias);
-        fingerprints.absolutePathAliases.delete(absolutePath);
-        return undefined;
-    }
-}
-function queueByPath(trackedPath, fn) {
-    const previous = localQueues.get(trackedPath) ?? Promise.resolve();
-    const current = previous.catch(() => undefined).then(fn);
-    const queued = current.finally(() => {
-        if (localQueues.get(trackedPath) === queued) {
-            localQueues.delete(trackedPath);
-        }
-    });
-    localQueues.set(trackedPath, queued);
-    // The caller observes current; also handle the cleanup promise's rejection.
-    void queued.catch(() => undefined);
-    return current;
-}
-function isMissingPathError(error) {
-    return (typeof error === "object" &&
-        error !== null &&
-        "code" in error &&
-        (error.code === "ENOENT" || error.code === "ENOTDIR"));
-}
-async function getMutationQueueKey(filePath) {
-    const resolvedPath = path.resolve(filePath);
-    try {
-        return await fs.realpath(resolvedPath);
-    }
-    catch (error) {
-        if (isMissingPathError(error))
-            return resolvedPath;
-        throw error;
-    }
-}
-async function withFileMutationQueue(filePath, fn) {
-    const registration = registrationQueue.then(async () => {
-        const key = await getMutationQueueKey(filePath);
-        const currentQueue = fileMutationQueues.get(key) ?? Promise.resolve();
-        let releaseNext;
-        const nextQueue = new Promise((resolveQueue) => {
-            releaseNext = resolveQueue;
-        });
-        const chainedQueue = currentQueue.then(() => nextQueue);
-        fileMutationQueues.set(key, chainedQueue);
-        return { key, currentQueue, chainedQueue, releaseNext };
-    });
-    registrationQueue = registration.then(() => undefined, () => undefined);
-    const { key, currentQueue, chainedQueue, releaseNext } = await registration;
-    await currentQueue;
-    try {
-        return await fn();
-    }
-    finally {
-        releaseNext();
-        if (fileMutationQueues.get(key) === chainedQueue) {
-            fileMutationQueues.delete(key);
-        }
-    }
-}
-async function queuedFileOperation(trackedPath, fn) {
-    return withFileMutationQueue(trackedPath, () => queueByPath(trackedPath, fn));
-}
-function getPathInput(event) {
-    return typeof event.input.path === "string" ? event.input.path : undefined;
-}
-async function guardFreshness(fingerprints, toolName, inputPath, cwd) {
-    const absolutePath = resolveAbsolutePath(inputPath, cwd);
-    const trackedPath = await resolveTrackedPath(inputPath, cwd);
-    return queuedFileOperation(trackedPath, async () => {
-        const exists = await pathExists(trackedPath);
-        const fingerprint = getFingerprint(fingerprints, trackedPath, absolutePath);
-        if (!exists) {
-            if (fingerprint) {
-                return {
-                    block: true,
-                    reason: `Blocked stale write: file was deleted since the last read: ${inputPath}`,
-                };
-            }
-            if (toolName === "write" && config.allowNewFileWriteWithoutRead) {
-                return undefined;
-            }
-        }
-        if (!fingerprint) {
-            if (toolName === "edit" && !config.requireReadBeforeEdit)
-                return undefined;
-            if (toolName === "write" && !config.requireReadBeforeExistingWrite)
-                return undefined;
-            return {
-                block: true,
-                reason: `Blocked stale write: file has not been read in this session. Read it before editing: ${inputPath}`,
-            };
-        }
-        const current = await hashFile(trackedPath);
-        if (current.hash !== fingerprint.hash || current.size !== fingerprint.size) {
-            return {
-                block: true,
-                reason: `Blocked stale write: file changed on disk since the last read. Read it again before editing: ${inputPath}`,
-            };
-        }
-        return undefined;
-    });
+    return key;
 }
 export default function readBeforeWrite(pi) {
-    let fingerprints = new FingerprintCache(config.maxFingerprints, config.maxFingerprintBytes);
-    pi.on("session_start", () => {
-        fingerprints = new FingerprintCache(config.maxFingerprints, config.maxFingerprintBytes);
-    });
-    pi.on("tool_call", async (event, ctx) => {
-        if (event.toolName !== "edit" && event.toolName !== "write")
-            return undefined;
-        const inputPath = getPathInput(event);
-        if (!inputPath)
-            return undefined;
-        return guardFreshness(fingerprints, event.toolName, inputPath, ctx.cwd);
-    });
-    pi.on("tool_result", async (event, ctx) => {
-        if (event.isError)
-            return undefined;
-        if (event.toolName !== "read" && event.toolName !== "edit" && event.toolName !== "write")
-            return undefined;
-        const inputPath = getPathInput(event);
-        if (!inputPath)
-            return undefined;
-        // An in-flight result must not populate a replacement session's cache.
-        const sessionFingerprints = fingerprints;
-        const trackedPath = await resolveTrackedPath(inputPath, ctx.cwd);
-        await queuedFileOperation(trackedPath, () => recordFingerprint(sessionFingerprints, inputPath, ctx.cwd));
-        return undefined;
-    });
+    let cache = new FingerprintCache();
+    const reset = () => { cache = new FingerprintCache(); };
+    pi.on("session_start", reset);
+    pi.on("session_tree", reset);
+    pi.on("session_compact", reset);
+    pi.on("session_shutdown", reset);
+    // Delegate schemas, rendering, path fallbacks, BOM/line endings, image handling,
+    // cancellation and mutation serialization to the installed host. Only the actual
+    // bytes handed across its operation boundary may establish authorization.
+    // Erase schema-specific types only across this forwarding loop; each definition
+    // retains its original schema and receives its own validated input unchanged.
+    const factories = {
+        read: createReadToolDefinition, edit: createEditToolDefinition, write: createWriteToolDefinition,
+    };
+    for (const name of ["read", "edit", "write"]) {
+        const definition = factories[name](process.cwd());
+        pi.registerTool({
+            ...definition,
+            async execute(id, input, signal, onUpdate, ctx) {
+                const owner = cache;
+                let observed;
+                const operations = {
+                    access: (absolute) => fs.access(absolute, name === "read" ? constants.R_OK : constants.R_OK | constants.W_OK),
+                    detectImageMimeType: detectSupportedImageMimeTypeFromFile,
+                    mkdir: async (directory) => { await fs.mkdir(directory, { recursive: true }); },
+                    readFile: async (absolute) => {
+                        const key = await canonicalPath(absolute);
+                        const bytes = await fs.readFile(absolute);
+                        if (name === "edit")
+                            await guard(owner, absolute, false, bytes);
+                        if (key === await canonicalPath(absolute))
+                            observed = { key, absolute, hash: hash(bytes) };
+                        return bytes;
+                    },
+                    writeFile: async (absolute, content) => {
+                        if (name === "edit" && !observed)
+                            throw new Error(`Blocked stale write: file identity changed during edit: ${absolute}`);
+                        // A concurrent read must not authorize writing an edit computed from older bytes.
+                        const key = await guard(owner, absolute, name === "write", undefined, name === "edit" ? observed : undefined);
+                        // Revoke before attempting I/O: failed/partial writes must not keep authorization.
+                        owner.set(key, absolute);
+                        await fs.writeFile(absolute, content, "utf8");
+                        if (key === await canonicalPath(absolute))
+                            observed = { key, absolute, hash: hash(content) };
+                    },
+                };
+                const tool = factories[name](ctx.cwd, { operations });
+                const result = await tool.execute(id, input, signal, onUpdate, ctx);
+                if (observed && !signal?.aborted)
+                    owner.set(observed.key, observed.absolute, observed.hash);
+                return result;
+            },
+        });
+    }
 }
 //# sourceMappingURL=index.js.map

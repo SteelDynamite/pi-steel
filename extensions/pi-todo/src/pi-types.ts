@@ -1,5 +1,6 @@
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { Static, TSchema } from "typebox";
+import type { ToolResultBranchEntry } from "./todo-core.ts";
 
 export interface Theme {
 	fg(color: string, text: string): string;
@@ -16,21 +17,16 @@ export interface ExtensionContext {
 	hasUI: boolean;
 	ui: ExtensionUIContext;
 	sessionManager: {
-		getBranch(): Iterable<{
-			type?: string;
-			message?: {
-				role?: string;
-				toolName?: string;
-				details?: unknown;
-			};
-		}>;
+		getBranch(): Iterable<ToolResultBranchEntry>;
 	};
 }
 
 type ToolTextContent = { type: "text"; text: string };
-type ToolResult<TDetails> = { content: ToolTextContent[]; details: TDetails };
+type ToolResult<TDetails> = { content: ToolTextContent[]; details: TDetails; isError?: boolean };
 
 export interface ExtensionAPI {
+	appendEntry(customType: string, data?: unknown): void;
+	on(event: "agent_before_settle", handler: (event: { outcome: "completed" | "aborted" | "error" }, ctx: ExtensionContext) => unknown): void;
 	on(event: string, handler: (event: unknown, ctx: ExtensionContext) => unknown | Promise<unknown>): void;
 	sendMessage(
 		message: { customType: string; content: string; display?: boolean; details?: unknown },

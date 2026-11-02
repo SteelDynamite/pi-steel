@@ -33,8 +33,8 @@ export function markAgentTerminating(state: AgentLifecycleState, now = Date.now(
 export function recordAgentError(state: AgentLifecycleState, message: string, now = Date.now()): void {
 	if (state.phase === "closed") return;
 	state.lastActivityAt = now;
-	state.stopReason = "error";
-	state.errorMessage = message;
+	if (state.stopReason !== "aborted") state.stopReason = "error";
+	state.errorMessage = state.errorMessage ? `${state.errorMessage}\n${message}` : message;
 }
 
 export function markAgentClosed(state: AgentLifecycleState, exitCode: number, now = Date.now()): void {

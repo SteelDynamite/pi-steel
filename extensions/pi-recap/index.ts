@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { buildSessionContext } from "@earendil-works/pi-coding-agent";
 import type {
 	ExtensionAPI,
 	ExtensionCommandContext,
@@ -18,6 +19,16 @@ import {
 } from "./src/recap.ts";
 
 export * from "./src/recap.ts";
+
+// The standalone development lock predates Pi 1.4's provider-neutral facade.
+// Keep this adapter limited to the runtime method; do not fall back to complete().
+type RecapRegistry = ExtensionContext["modelRegistry"] & {
+	streamSimple(
+		model: NonNullable<ExtensionContext["model"]>,
+		context: Parameters<ExtensionContext["modelRegistry"]["complete"]>[1],
+		options: { signal: AbortSignal; maxTokens: number; cacheRetention: "none"; sessionId: string },
+	): { result(): ReturnType<ExtensionContext["modelRegistry"]["complete"]> };
+};
 
 interface RuntimeOptions {
 	idleDelayMs?: number;
@@ -86,6 +97,7 @@ export function createRecapExtension(options: RuntimeOptions = {}) {
 			}
 			if (expectedLeaf !== ctx.sessionManager.getLeafId()) return;
 			const entries = ctx.sessionManager.getBranch() as SessionEntry[];
+			const messages = buildSessionContext(entries).messages;
 			if (trigger === "automatic" && (
 				!automaticEnabled(ctx)
 				|| !ctx.isIdle()
@@ -93,7 +105,7 @@ export function createRecapExtension(options: RuntimeOptions = {}) {
 				|| ctx.ui.getEditorText().trim().length > 0
 				|| !automaticRecapEligible(entries)
 			)) return;
-			const prompt = buildRecapPrompt(entries);
+			const prompt = buildRecapPrompt(entries, messages);
 			if (!prompt) {
 				if (trigger === "manual" && ctx.hasUI) ctx.ui.notify("No conversation history to recap.", "warning");
 				return;
@@ -113,8 +125,18 @@ export function createRecapExtension(options: RuntimeOptions = {}) {
 			generation = active;
 			ctx.ui.setStatus(CUSTOM_TYPE, "Generating recap…");
 			let retry = false;
+			const deadline = new AbortController();
+			const timeout = setTimeout(() => deadline.abort(new Error("Recap generation timed out.")), requestTimeoutMs);
+			const signal = AbortSignal.any([active.controller.signal, deadline.signal, ...(ctx.signal ? [ctx.signal] : [])]);
+			let onAbort: (() => void) | undefined;
 			try {
-				const response = await ctx.modelRegistry.complete(
+				signal.throwIfAborted();
+				// Race the deadline too: a provider or credential resolver may ignore abort.
+				const aborted = new Promise<never>((_resolve, reject) => {
+					onAbort = () => reject(signal.reason);
+					signal.addEventListener("abort", onAbort, { once: true });
+				});
+				const result = (ctx.modelRegistry as RecapRegistry).streamSimple(
 					model,
 					{
 						messages: [{
@@ -124,13 +146,16 @@ export function createRecapExtension(options: RuntimeOptions = {}) {
 						}],
 					},
 					{
-						signal: AbortSignal.any([active.controller.signal, AbortSignal.timeout(requestTimeoutMs)]),
+						signal,
 						maxTokens: 1_024,
 						cacheRetention: "none",
 						sessionId: randomUUID(),
 					},
-				);
-				if (generation !== active || active.controller.signal.aborted) return;
+				).result();
+				const response = await Promise.race([result, aborted]);
+				signal.throwIfAborted();
+				if (generation !== active) return;
+				if (response.stopReason !== "stop") throw new Error(response.errorMessage ?? `Recap response ended with ${response.stopReason}.`);
 				if (expectedLeaf !== ctx.sessionManager.getLeafId() || !ctx.isIdle() || ctx.hasPendingMessages()) return;
 				const parsed = parseGeneratedRecap(responseText(response.content));
 				if (!parsed) throw new Error(response.errorMessage ?? "The model returned an invalid recap.");
@@ -148,7 +173,7 @@ export function createRecapExtension(options: RuntimeOptions = {}) {
 				pi.appendEntry(CUSTOM_TYPE, data);
 				if (ctx.mode === "rpc") ctx.ui.notify(`Recap: ${data.summary}`, "info");
 			} catch (error) {
-				if (active.controller.signal.aborted || generation !== active) return;
+				if (active.controller.signal.aborted || ctx.signal?.aborted || generation !== active) return;
 				retry = trigger === "automatic" && attempt === 0
 					&& expectedLeaf === ctx.sessionManager.getLeafId() && ctx.isIdle();
 				if (!retry && ctx.hasUI) {
@@ -156,6 +181,8 @@ export function createRecapExtension(options: RuntimeOptions = {}) {
 					ctx.ui.notify(`Could not generate recap: ${message}`, "warning");
 				}
 			} finally {
+				clearTimeout(timeout);
+				if (onAbort) signal.removeEventListener("abort", onAbort);
 				if (generation === active) {
 					generation = undefined;
 					ctx.ui.setStatus(CUSTOM_TYPE, undefined);

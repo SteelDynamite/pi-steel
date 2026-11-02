@@ -31,6 +31,9 @@ function createHarness(mode: Mode, branch: unknown[] = []) {
 		registerTool(definition: Tool) {
 			tool = definition;
 		},
+		appendEntry(customType: string, data: unknown) {
+			branch.push({ type: "custom", customType, data });
+		},
 		setSessionName(name: string) {
 			setSessionNameCalls.push(name);
 		},
@@ -54,8 +57,11 @@ function createHarness(mode: Mode, branch: unknown[] = []) {
 		},
 	};
 
-	async function emit(event: string) {
-		for (const handler of handlers.get(event) ?? []) await handler({}, ctx);
+	async function emit(event: string, data: unknown = { outcome: "completed", context: { canContinue: true } }) {
+		for (const handler of handlers.get(event) ?? []) {
+			const result = await handler(data, ctx);
+			if (result) sendMessageCalls.push([result]);
+		}
 	}
 
 	assert.ok(tool, "todo tool registered");
@@ -165,6 +171,29 @@ describe("tool safety", () => {
 });
 
 describe("mode-specific widget behavior", () => {
+	it("resets auto-hide on tree navigation and never leaks a malformed branch", async () => {
+		const branch = [toolEntry({ todos: [{ id: 1, text: "A", state: "done" }], nextId: 2, title: "A" })];
+		const harness = createHarness("tui", branch);
+		await harness.emit("session_start");
+		for (let i = 0; i < 4; i++) await harness.emit("turn_start");
+		assert.deepEqual(renderedTodoIds(renderWidget(harness)), []);
+		branch.splice(0, branch.length, toolEntry({ todos: [{ id: 2, text: "B", state: "failed" }], nextId: 3, title: "B" }));
+		await harness.emit("session_tree");
+		assert.deepEqual(renderedTodoIds(renderWidget(harness)), [2]);
+		for (let i = 0; i < 3; i++) await harness.emit("turn_start");
+		assert.deepEqual(renderedTodoIds(renderWidget(harness)), [2]);
+		await harness.emit("turn_start");
+		assert.deepEqual(renderWidget(harness), ["● B"]);
+		branch.splice(0, branch.length, toolEntry({ todos: [null, "bad"], title: "malformed" }));
+		await harness.emit("session_tree");
+		assert.deepEqual(renderWidget(harness), ["● malformed"]);
+		branch.splice(0, branch.length, toolEntry({ todos: [{ id: 3, text: "pending", state: "pending" }], title: "Pending" }));
+		await harness.emit("session_tree");
+		for (let i = 0; i < 5; i++) await harness.emit("turn_start");
+		assert.deepEqual(renderedTodoIds(renderWidget(harness)), [3]);
+		await harness.emit("session_shutdown");
+	});
+
 	it("keeps the todo tool usable without widget work in non-TUI modes", async () => {
 		for (const mode of ["rpc", "json", "print"] as const) {
 			const harness = createHarness(mode);
@@ -270,7 +299,10 @@ describe("mode-specific widget behavior", () => {
 		assert.equal(lines.some((line) => line.includes("more")), false);
 	});
 
-	it("reminds once when pending todos appear before later terminal todos", async () => {
+	it("reminds once when pending todos appear before later terminal todos", async (t) => {
+		const child = process.env.PI_ORCHESTRATED_CHILD;
+		process.env.PI_ORCHESTRATED_CHILD = "0";
+		t.after(() => { if (child === undefined) delete process.env.PI_ORCHESTRATED_CHILD; else process.env.PI_ORCHESTRATED_CHILD = child; });
 		const harness = createHarness("json", [toolEntry({
 			action: "complete",
 			nextId: 4,
@@ -281,15 +313,15 @@ describe("mode-specific widget behavior", () => {
 			],
 		})]);
 		await harness.emit("session_start");
-		await harness.emit("agent_end");
-		await harness.emit("agent_end");
+		await harness.emit("agent_before_settle");
+		await harness.emit("agent_before_settle");
 
 		assert.equal(harness.sendMessageCalls.length, 1);
 		assert.match(JSON.stringify(harness.sendMessageCalls[0]), /todo-pending-order/);
 		assert.match(JSON.stringify(harness.sendMessageCalls[0]), /#2/);
 
 		await harness.emit("before_agent_start");
-		await harness.emit("agent_end");
+		await harness.emit("agent_before_settle");
 		assert.equal(harness.sendMessageCalls.length, 2);
 	});
 
@@ -303,7 +335,7 @@ describe("mode-specific widget behavior", () => {
 			],
 		})]);
 		await harness.emit("session_start");
-		await harness.emit("agent_end");
+		await harness.emit("agent_before_settle");
 
 		assert.deepEqual(harness.sendMessageCalls, []);
 	});

@@ -23,6 +23,7 @@ import { formatTokens, getFinalOutput, isFailedResult, makeErrorResult } from ".
 import {
 	formatWrongIntentReason,
 	getRequiredSessionIntent,
+	getMainSessionKey,
 	getWrongIntentRetry,
 	persistSubagentState,
 	subagentSettings,
@@ -32,6 +33,8 @@ import type { OnUpdateCallback, SessionIntent, SingleResult, SubagentDetails } f
 import { streamDelta, TokenSpeedTracker } from "./token-speed.ts";
 
 let knownToolNames = new Set(DEFAULT_KNOWN_TOOLS);
+// Reserve before the first await, through fallback and persisted state updates.
+const activeSessions = new Set<string>();
 
 export function setKnownToolNames(names: Iterable<string>): void {
 	knownToolNames = new Set(names);
@@ -116,6 +119,15 @@ interface ChildProgress {
 	lastSpeedUpdateAt?: number;
 }
 
+export function addChildUsage(result: SingleResult, usage: SingleResult["nativeUsage"]): void {
+	if (!usage) return;
+	const total = result.nativeUsage ??= { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+	for (const key of ["input", "output", "cacheRead", "cacheWrite", "totalTokens", "reasoning", "cacheWrite1h"] as const) {
+		if (typeof usage[key] === "number") total[key] = (total[key] ?? 0) + usage[key];
+	}
+	for (const key of ["input", "output", "cacheRead", "cacheWrite", "total"] as const) total.cost[key] += usage.cost?.[key] ?? 0;
+}
+
 export function processChildJsonEvent(event: any, result: SingleResult, emitUpdate: () => void, progress?: ChildProgress): void {
 	if (applyNestedSubagentEvent(result, event)) emitUpdate();
 	if (progress && event.type === "message_start" && event.message?.role === "assistant") progress.speed.beginCall();
@@ -136,7 +148,9 @@ export function processChildJsonEvent(event: any, result: SingleResult, emitUpda
 	}
 	if (event.type === "message_end" && event.message) {
 		const message = event.message as Message;
+		if (message.role === "toolResult" && result.messages.some((existing: any) => existing.role === "toolResult" && existing.toolCallId === message.toolCallId)) return;
 		result.messages.push(message);
+		if (message.role === "assistant" || message.role === "toolResult") addChildUsage(result, (message as { usage?: SingleResult["nativeUsage"] }).usage);
 		if (message.role === "assistant") {
 			if (progress) result.tokenSpeed = progress.speed.endCall(message.usage?.output);
 			result.usage.turns++;
@@ -151,12 +165,17 @@ export function processChildJsonEvent(event: any, result: SingleResult, emitUpda
 			}
 			if (!result.model && message.model) result.model = message.model;
 			if (message.stopReason) result.stopReason = message.stopReason;
-			if (message.errorMessage) result.errorMessage = message.errorMessage;
+			result.errorMessage = message.errorMessage;
 		}
 		emitUpdate();
 	}
 	if (event.type === "tool_result_end" && event.message) {
-		result.messages.push(event.message as Message);
+		// JSON mode normally reports tool results through message_end. Some hosts
+		// also emit tool_result_end; do not count that same result twice.
+		if (!result.messages.some((message: any) => message.role === "toolResult" && message.toolCallId === event.message.toolCallId)) {
+			result.messages.push(event.message as Message);
+			addChildUsage(result, event.message.usage);
+		}
 		emitUpdate();
 	}
 }
@@ -210,8 +229,13 @@ export function shouldRetryPreferredModelFailure(result: SingleResult): boolean 
 async function writePromptToTempFile(agentName: string, prompt: string): Promise<{ dir: string; filePath: string }> {
 	const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "pi-subagent-"));
 	const filePath = path.join(dir, `prompt-${agentName.replace(/[^\w.-]+/g, "_")}.md`);
-	await fs.promises.writeFile(filePath, prompt, { encoding: "utf8", mode: 0o600 });
-	return { dir, filePath };
+	try {
+		await fs.promises.writeFile(filePath, prompt, { encoding: "utf8", mode: 0o600 });
+		return { dir, filePath };
+	} catch (error) {
+		await fs.promises.rm(dir, { recursive: true, force: true });
+		throw error;
+	}
 }
 
 export async function getPiInvocation(args: string[]): Promise<{ command: string; args: string[] }> {
@@ -280,6 +304,11 @@ export async function runDelegation(
 		});
 	}
 
+	const ownershipKeys = agent.resumable ? [`agent:${getMainSessionKey(ctx)}\0${agent.id}`] : [];
+	if (session === "resume" && required.record) ownershipKeys.push(`session:${required.record.sessionId}`);
+	if (ownershipKeys.some((key) => activeSessions.has(key))) return makeErrorResult(agent.id, task, "This resumable subagent already has an active call. Wait for it to finish before retrying.", session);
+	for (const key of ownershipKeys) activeSessions.add(key);
+	try {
 	let invocation: Awaited<ReturnType<typeof getPiInvocation>>;
 	try {
 		invocation = await getPiInvocation([]);
@@ -293,6 +322,11 @@ export async function runDelegation(
 		? session === "resume" ? required.record?.sessionId : crypto.randomUUID()
 		: undefined;
 	if (!sessionId && retryWithCaller) sessionId = crypto.randomUUID();
+	if (sessionId && session !== "resume") {
+		const key = `session:${sessionId}`;
+		ownershipKeys.push(key);
+		activeSessions.add(key);
+	}
 
 	const runAttempt = async (model: ResolvedAgentModel): Promise<SingleResult> => {
 		let receivedAt = 0;
@@ -339,7 +373,6 @@ export async function runDelegation(
 				return result;
 			}
 			const lifecycle = createAgentLifecycle(agent.id);
-			let contextEvidence: string | undefined;
 			await new Promise<void>((resolve) => {
 				const env = { ...process.env, ...makeSubagentChildEnv(agent, currentDepth, includeLocationalAgentsInBehavioralChild) };
 				if (env.PI_CHATGPT_SPEED?.toLowerCase() === "ultrafast") {
@@ -363,7 +396,6 @@ export async function runDelegation(
 				const emit = () => onUpdate?.({ content: [{ type: "text", text: getFinalOutput(result.messages) || "(running...)" }], details: makeDetails([result]) });
 				const processLine = (line: string) => {
 					if (!line.trim()) return;
-					contextEvidence ??= findContextLimitEvidence(line);
 					try {
 						processChildJsonEvent(JSON.parse(line), result, emit, progress);
 					} catch {
@@ -372,13 +404,15 @@ export async function runDelegation(
 				};
 				const abort = () => {
 					if (!markAgentTerminating(lifecycle)) return;
-					proc.kill("SIGTERM");
+					try { proc.kill("SIGTERM"); } catch (error) { recordAgentError(lifecycle, String(error)); }
 					forceKillTimer = setTimeout(() => {
-						if (proc.exitCode === null) proc.kill("SIGKILL");
+						if (proc.exitCode === null) {
+							try { proc.kill("SIGKILL"); } catch (error) { recordAgentError(lifecycle, String(error)); }
+						}
 					}, 5000);
 					forceKillTimer.unref();
 				};
-				const finish = (code: number, error?: string) => {
+				const finish = (code: number) => {
 					if (settled) return;
 					settled = true;
 					if (forceKillTimer) clearTimeout(forceKillTimer);
@@ -386,7 +420,6 @@ export async function runDelegation(
 					if (buffer.trim()) processLine(buffer);
 					// A killed stream may lack message_end. Never persist its live estimate as final.
 					result.tokenSpeed = progress.speed.aggregateMeasurement();
-					if (error) recordAgentError(lifecycle, error);
 					markAgentClosed(lifecycle, code);
 					// Cancellation owns the final outcome even after an answer or graceful exit.
 					result.exitCode = lifecycle.stopReason === "aborted" ? 130 : code;
@@ -409,11 +442,18 @@ export async function runDelegation(
 					result.stderr += data.toString();
 				});
 				proc.on("close", (code) => finish(code ?? (lifecycle.stopReason === "aborted" ? 130 : 1)));
-				proc.on("error", (error) => finish(1, error.message));
+				// Node emits close after error, including failed spawn. Streams and the
+				// session reservation remain owned until then; never retry on error alone.
+				proc.on("error", (error) => recordAgentError(lifecycle, error.message));
 				if (signal?.aborted) abort();
 				else signal?.addEventListener("abort", abort, { once: true });
 			});
-			classifyContextLimitFailure(result, contextEvidence ? [contextEvidence] : []);
+			classifyContextLimitFailure(result);
+			return result;
+		} catch (error) {
+			result.exitCode = signal?.aborted ? 130 : 1;
+			result.stopReason = signal?.aborted ? "aborted" : "error";
+			result.errorMessage = signal?.aborted ? `Subagent was aborted. ${String(error)}` : String(error);
 			return result;
 		} finally {
 			if (promptPath) await fs.promises.unlink(promptPath).catch(() => undefined);
@@ -425,10 +465,14 @@ export async function runDelegation(
 	let final = first;
 	if (!signal?.aborted && retryWithCaller && shouldRetryPreferredModelFailure(first)) {
 		final = await runAttempt({ model: resolvedModel.fallbackModel, contextWindow: resolvedModel.fallbackContextWindow, source: "caller" });
+		addChildUsage(final, first.nativeUsage);
 		const warning = `${resolvedModel.source === "agent" ? "Explicit locational model" : "Preferred locational model"} ${first.model ?? "(default)"} failed before task work; retried with caller model ${final.model ?? "(default)"}.`;
 		final.warning = final.warning ? `${final.warning}\n${warning}` : warning;
 	}
 	updateTrackedSession(ctx, agent, sessionId, final);
 	if (agent.resumable) persistSubagentState(pi);
 	return final;
+	} finally {
+		for (const key of ownershipKeys) activeSessions.delete(key);
+	}
 }

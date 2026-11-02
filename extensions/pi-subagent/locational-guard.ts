@@ -1,8 +1,9 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { AgentConfig } from "./agents.ts";
-import { getAgentInstructionsFileName, getBehavioralDefinitionRoots, isBehavioralDefinitionPath, scanLocationalAgents } from "./agents.ts";
+import { getAgentInstructionsFileName, getBehavioralDefinitionRoots, isBehavioralDefinitionPath, scanLocationalAgents, realPathIfExists } from "./agents.ts";
 import { CURRENT_LOCATIONAL_ROOT_ENV, LOCATIONAL_ANCESTOR_STACK_ENV, locationalAgentsEnabled } from "./constants.ts";
 import type { ExtensionContext } from "./pi-compat.ts";
 
@@ -17,11 +18,7 @@ export function notifyLocationalBoundaryDiscovered(ctx: ExtensionContext, root: 
 }
 
 export function canonicalPath(value: string): string {
-	try {
-		return fs.realpathSync.native(path.resolve(value));
-	} catch {
-		return path.resolve(value);
-	}
+	return realPathIfExists(value);
 }
 
 function environmentRoot(name: string): string | undefined {
@@ -55,8 +52,8 @@ export function getLocationalLoopError(agent: AgentConfig): string | undefined {
 	return `Locational delegation loop blocked: locational agent "${agent.id}" resolves to "${target}", which is already active as "${matching}".${stack ? ` Stack: ${stack}.` : ""}`;
 }
 
-function containingLocationalRoot(cwd: string): string | undefined {
-	const behavioralRoots = getBehavioralDefinitionRoots(cwd);
+export function containingLocationalRoot(cwd: string, projectCwd = cwd): string | undefined {
+	const behavioralRoots = getBehavioralDefinitionRoots(projectCwd);
 	for (let current = path.resolve(cwd); ; current = path.dirname(current)) {
 		if (!isBehavioralDefinitionPath(current, behavioralRoots) && fs.existsSync(path.join(current, getAgentInstructionsFileName()))) return canonicalPath(current);
 		if (path.dirname(current) === current) return undefined;
@@ -81,6 +78,21 @@ export function makeChildLocationalEnv(agent: AgentConfig): Record<string, strin
 		[CURRENT_LOCATIONAL_ROOT_ENV]: target,
 		[LOCATIONAL_ANCESTOR_STACK_ENV]: JSON.stringify([...new Set([...getLocationalAncestorStack(), target])]),
 	};
+}
+
+// Pi 1.4 built-in path-utils parity; shell/custom tools deliberately keep their own spelling.
+export function resolveBuiltinTarget(cwd: string, value: string, read = false): string {
+	let normalized = value.replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g, " ").replace(/^@/, "");
+	if (normalized === "~") normalized = os.homedir();
+	else if (normalized.startsWith("~/")) normalized = path.join(os.homedir(), normalized.slice(2));
+	if (normalized.startsWith("file://")) normalized = fileURLToPath(normalized);
+	let target = path.resolve(cwd, normalized);
+	if (read && !fs.existsSync(target)) {
+		const nfd = target.normalize("NFD");
+		const variants = [target.replace(/ (AM|PM)\./gi, "\u202F$1."), nfd, target.replace(/'/g, "\u2019"), nfd.replace(/'/g, "\u2019")];
+		target = variants.find((variant) => fs.existsSync(variant)) ?? target;
+	}
+	return canonicalPath(target);
 }
 
 export function resolveFilesystemTarget(cwd: string, value: string, options: { allowBare?: boolean } = {}): string | null {

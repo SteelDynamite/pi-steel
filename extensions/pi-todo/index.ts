@@ -2,7 +2,7 @@
  * Todo Extension - Stateful branch-aware todos with an always-visible widget.
  *
  * This extension registers a `todo` tool for the LLM to manage todos.
- * State is stored in tool result details (not external files), which allows
+ * State is stored in branch-local custom entries and tool result details, which allows
  * proper branching - when you branch, the todo state is automatically
  * correct for that point in history.
  */
@@ -24,6 +24,7 @@ import {
 	type Todo,
 	type TodoDetails,
 	type TodoModel,
+	TODO_STATE_ENTRY,
 } from "./src/todo-core.ts";
 import { green, IN_PROGRESS_FRAMES, DONE_ICON, FAILED_ICON, todoIcon, todoResultText, todoSummary, todoText, terminalText } from "./src/todo-format.ts";
 
@@ -196,7 +197,7 @@ export default function (pi: ExtensionAPI) {
 	let currentTurn = 0;
 	let allTerminalSinceTurn: number | undefined;
 	let widgetHidden = false;
-	let lastOrderReminderKey: string | undefined;
+	let orderReminderSent = false;
 	const widget = new TodoWidget(() => model.todos, () => model.title, () => widgetHidden);
 
 	const allTodosTerminal = () => model.todos.length > 0 && model.todos.every(isTerminal);
@@ -211,30 +212,30 @@ export default function (pi: ExtensionAPI) {
 		if (currentTurn - allTerminalSinceTurn >= AUTO_HIDE_AFTER_TURNS) widgetHidden = true;
 	};
 
-	const todoSnapshot = (action: TodoDetails["action"], extra: Partial<TodoDetails> = {}): TodoDetails => snapshot(model, action, extra);
+	const todoSnapshot = (action: TodoDetails["action"], extra: Partial<TodoDetails> = {}): TodoDetails => {
+		const details = snapshot(model, action, { ...extra, stateEntry: true });
+		// Nested calls have no transcript result; appendEntry follows the active branch.
+		if (action !== "list" && !extra.error) pi.appendEntry(TODO_STATE_ENTRY, details);
+		return details;
+	};
 
 	const maybeRemindTodoOrder = () => {
 		const pending = pendingBeforeTerminalTodos(model.todos);
-		if (pending.length === 0) {
-			lastOrderReminderKey = undefined;
-			return;
-		}
-
-		const key = model.todos.map((todo) => `${todo.id}:${todo.state}`).join("|");
-		if (key === lastOrderReminderKey) return;
-		lastOrderReminderKey = key;
+		if (pending.length === 0 || orderReminderSent) return;
+		orderReminderSent = true;
 
 		const ids = pending.map((todo) => `#${todo.id}`).join(", ");
 		const message = `Pending todo(s) ${ids} appear before later done/failed todo(s). Mark them done or failed, or replace/reorder the todo list so remaining pending todos are at the end.`;
-		pi.sendMessage(
-			{
+		return {
+			entries: [{
+				type: "custom_message" as const,
 				customType: "system-reminder",
 				content: `<system-reminder name="todo-pending-order">\n${escapeXmlContent(message)}\n</system-reminder>`,
 				display: true,
 				details: { name: "todo-pending-order", pendingTodoIds: pending.map((todo) => todo.id), message },
-			},
-			{ deliverAs: "steer", triggerTurn: true },
-		);
+			}],
+			continue: true,
+		};
 	};
 
 	const restoreSessionName = () => {
@@ -243,7 +244,10 @@ export default function (pi: ExtensionAPI) {
 
 	const reconstructState = (ctx: ExtensionContext) => {
 		model = reconstructTodoModelFromBranch(ctx.sessionManager.getBranch());
-		lastOrderReminderKey = undefined;
+		orderReminderSent = false;
+		currentTurn = 0;
+		allTerminalSinceTurn = undefined;
+		widgetHidden = false;
 		restoreSessionName();
 		refreshAutoHideState();
 	};
@@ -261,9 +265,6 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	pi.on("session_start", async (_event, ctx) => {
-		currentTurn = 0;
-		allTerminalSinceTurn = undefined;
-		widgetHidden = false;
 		reconstructState(ctx);
 		updateWidget(ctx);
 	});
@@ -274,7 +275,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("before_agent_start", async (_event, ctx) => {
-		lastOrderReminderKey = undefined;
+		orderReminderSent = false;
 		updateWidget(ctx);
 	});
 
@@ -292,7 +293,12 @@ export default function (pi: ExtensionAPI) {
 		setWidgetAgentActive(ctx, false);
 		refreshAutoHideState();
 		updateWidget(ctx);
-		maybeRemindTodoOrder();
+	});
+
+	pi.on("agent_before_settle", (event) => {
+		// The host boundary discards continuation on abort; never leave queued steering behind.
+		if (process.env.PI_ORCHESTRATED_CHILD === "1" || event.outcome !== "completed") return;
+		return maybeRemindTodoOrder();
 	});
 
 	pi.on("session_shutdown", async () => {
@@ -339,6 +345,7 @@ export default function (pi: ExtensionAPI) {
 						return {
 							content: [{ type: "text" as const, text: "Error: items array required for add" }],
 							details: todoSnapshot("add", { error: "items array required" }),
+							isError: true,
 						};
 					}
 					const added = addTodos(model, params.items, params.replace, params.title);
@@ -364,12 +371,14 @@ export default function (pi: ExtensionAPI) {
 						return {
 							content: [{ type: "text" as const, text: "Error: id required for complete" }],
 							details: todoSnapshot("complete", { error: "id required" }),
+							isError: true,
 						};
 					}
 					if (!params.state) {
 						return {
 							content: [{ type: "text" as const, text: "Error: state required for complete" }],
 							details: todoSnapshot("complete", { error: "state required" }),
+							isError: true,
 						};
 					}
 					const completed = completeTodo(model, params.id, params.state);
@@ -377,6 +386,7 @@ export default function (pi: ExtensionAPI) {
 						return {
 							content: [{ type: "text" as const, text: `Todo #${params.id} not found` }],
 							details: todoSnapshot("complete", { error: `#${params.id} not found` }),
+							isError: true,
 						};
 					}
 					refreshAutoHideState();

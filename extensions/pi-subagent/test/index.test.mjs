@@ -51,6 +51,7 @@ test("built-in bash path arguments remain subject to locational boundaries", asy
 			input: { command: "cat owned/secret.txt" },
 		}, {
 			cwd: root,
+			isProjectTrusted: () => true,
 			hasUI: false,
 		});
 		assert.equal(result.block, true);

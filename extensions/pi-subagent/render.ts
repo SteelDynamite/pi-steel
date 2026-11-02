@@ -68,6 +68,7 @@ export function renderSubagentResult(result: any, { expanded, isPartial = false 
 	const nested = formatNestedSubagentsForDisplay(agent.nestedSubagents, theme.fg.bind(theme));
 	const display = getDisplayItems(agent.messages);
 	const output = getFinalOutput(agent.messages);
+	const error = agent.errorMessage || (failed ? agent.stderr : "");
 	const compactOutput = display.slice(-COLLAPSED_ITEM_COUNT).filter((item) => item.type === "text").map((item) => preview(item.text)).join("\n");
 	if (!expanded) {
 		let text = status;
@@ -76,7 +77,7 @@ export function renderSubagentResult(result: any, { expanded, isPartial = false 
 		if (nested) text += `\n${nested}`;
 		if (agent.warning) text += `\n${theme.fg("warning", `Warning: ${agent.warning}`)}`;
 		if (agent.wrongSessionIntent) text += `\n${theme.fg("error", `Wrong session intent; retry: ${agent.wrongSessionIntent.recommendedRetry}`)}`;
-		else if (failed && agent.errorMessage) text += `\n${theme.fg("error", `Error: ${agent.errorMessage}`)}`;
+		else if (failed && error) text += `\n${theme.fg("error", `Error: ${preview(error, 512)}`)}`;
 		else if (compactOutput) text += `\n${theme.fg("toolOutput", compactOutput)}`;
 		else if (!running) text += `\n${theme.fg("muted", "(no output)")}`;
 		const usage = formatUsageStats(agent.usage);
@@ -88,7 +89,7 @@ export function renderSubagentResult(result: any, { expanded, isPartial = false 
 	if (nested) container.addChild(new Text(nested, 0, 0));
 	if (agent.warning) container.addChild(new Text(theme.fg("warning", `Warning: ${agent.warning}`), 0, 0));
 	if (agent.wrongSessionIntent) container.addChild(new Text(theme.fg("error", `Wrong session intent; retry: ${agent.wrongSessionIntent.recommendedRetry}`), 0, 0));
-	else if (agent.errorMessage) container.addChild(new Text(theme.fg("error", `Error: ${agent.errorMessage}`), 0, 0));
+	else if (error) container.addChild(new Text(theme.fg("error", `Error: ${preview(error, 2048)}`), 0, 0));
 	container.addChild(new Spacer(1));
 	container.addChild(new Text(theme.fg("muted", "─── Task ───"), 0, 0));
 	container.addChild(new Text(theme.fg("dim", agent.task), 0, 0));

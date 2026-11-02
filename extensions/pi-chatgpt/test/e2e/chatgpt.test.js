@@ -168,8 +168,9 @@ async function runRealPiTui({
   extraEnv = {},
   initialConfig,
   trustEnvName = "CHATGPT_TRUST_CUSTOM_BASE_URL",
-  waitFor = (text) => text.includes("42%") && text.includes("gpt-5.5"),
-  settleMs = 0,
+  waitFor = (text) =>
+    stripAnsi(text).includes(model) && stripAnsi(text).includes("(sub)"),
+  settleMs = 200,
   timeoutMs = 8000,
 }) {
   const tempDir = await mkdtemp(join(tmpdir(), "pi-chatgpt-e2e-"))
@@ -482,7 +483,7 @@ test("installs footer when ctx.mode is unavailable but process looks interactive
     await new Promise((resolveWait) => setTimeout(resolveWait, 20))
 
     assert.equal(footerInstalls, 1)
-    assert.equal(usageAuthCalls, 1)
+    assert.equal(usageAuthCalls, 0)
   } finally {
     if (originalIsTTY === undefined) {
       delete process.stdin.isTTY
@@ -535,6 +536,14 @@ test("parses usage snapshots and token metadata without a TUI", () => {
   assert.equal(snapshot.planType, "pro")
   assert.equal(snapshot.fiveHour.usedPercent, 25.4)
   assert.equal(snapshot.weekly.usedPercent, 42.2)
+  const weeklyOnly = __test__.parseUsageSnapshot({
+    rate_limit: {
+      primary_window: { used_percent: 42, limit_window_seconds: 604800 },
+      secondary_window: null,
+    },
+  })
+  assert.equal(weeklyOnly.weekly.usedPercent, 42)
+  assert.equal(weeklyOnly.fiveHour, undefined)
 })
 
 test("validates ChatGPT base URL before bearer token use", () => {
@@ -1030,7 +1039,7 @@ test("speed commands migrate config, patch tiers, report support, and manage inh
   }
 })
 
-test("unified openai OAuth supports speed modes and usage, but API keys do not", async (t) => {
+test("unified openai OAuth supports speed modes while quota fails closed for all credentials", async (t) => {
   const originalEnv = { ...process.env }
   const tempDir = await mkdtemp(join(tmpdir(), "pi-chatgpt-openai-"))
   await writeFile(
@@ -1046,28 +1055,23 @@ test("unified openai OAuth supports speed modes and usage, but API keys do not",
   const menus = []
   let oauth = true
   let authCalls = 0
-  let httpStatus = 200
-  let token = fakeJwt({
+  const token = fakeJwt({
     "https://api.openai.com/auth": { chatgpt_account_id: "acct_unified" },
   })
-  const fetchMock = t.mock.method(globalThis, "fetch", async (url, options) => {
-    assert.equal(url, "https://chatgpt.com/backend-api/wham/usage")
-    assert.equal(options.headers.Authorization, `Bearer ${token}`)
-    if (httpStatus !== 200)
-      return new Response("private server error", { status: httpStatus })
-    return new Response(
-      JSON.stringify({
-        plan_type: "enterprise",
-        rate_limit: {
-          primary_window: {
-            used_percent: 42,
-            limit_window_seconds: 7 * 24 * 60 * 60,
-          },
-        },
-      }),
-    )
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => {
+    assert.fail("quota must not dispatch without exact credential provenance")
   })
-  // Pi 0.99.1's unified catalog keeps this shape for both OAuth and API keys.
+  const assertQuotaDisabled = () => {
+    assert.deepEqual(notifications.at(-1), {
+      message:
+        "Could not load ChatGPT usage limits: quota requests disabled because Pi cannot prove the resolved credential is OAuth. Use ChatGPT Settings → Usage.",
+      type: "warning",
+    })
+    assert.equal(authCalls, 0)
+    assert.equal(fetchMock.mock.callCount(), 0)
+    assert.doesNotMatch(footer(), /W 42%|Usage: HTTP/)
+  }
+  // Unified model metadata does not prove credential provenance.
   const ctx = {
     mode: "rpc",
     model: {
@@ -1145,9 +1149,8 @@ test("unified openai OAuth supports speed modes and usage, but API keys do not",
     assert.equal(payload.service_tier, "default")
     assert.match(footer(), /Ultrafast/)
     await commands.get("chatgpt").handler("", ctx)
-    assert.ok(menus.at(-1).includes("provider: openai"))
-    assert.ok(menus.at(-1).includes("plan: enterprise"))
-    assert.match(footer(), /W 42%/)
+    assertQuotaDisabled()
+    assert.equal(menus.length, 1)
     await handlers.get("session_start")({}, ctx)
     assert.equal(process.env.PI_CHATGPT_SPEED, "ultrafast")
     assert.equal(process.env.PI_CHATGPT_FAST, "1")
@@ -1201,23 +1204,20 @@ test("unified openai OAuth supports speed modes and usage, but API keys do not",
     ctx.ui.setFooter = () => {}
     await handlers.get("session_start")({}, ctx)
     await new Promise((resolveWait) => setTimeout(resolveWait, 20))
-    assert.equal(authCalls, 1)
-    assert.equal(fetchMock.mock.callCount(), 1)
+    assert.equal(authCalls, 0)
+    assert.equal(fetchMock.mock.callCount(), 0)
 
-    // Usage must work in Standard mode and resolve credentials on every refresh.
+    // Standard mode and automatic refresh triggers must also fail closed.
     oauth = true
     await commands.get("fast").handler("temporary standard", ctx)
     for (const event of ["model_select", "agent_end"]) {
-      token = `test-refreshed-${event}`
       handlers.get(event)({ model: ctx.model }, ctx)
       await new Promise(setImmediate)
-      assert.match(footer(), /W 42%/)
+      assert.doesNotMatch(footer(), /W 42%/)
       assert.doesNotMatch(footer(), /Ultrafast|Fast/)
     }
     await commands.get("chatgpt-limit").handler("", ctx)
-    assert.ok(menus.at(-1).includes("provider: openai"))
-    assert.equal(authCalls, 4)
-    assert.equal(fetchMock.mock.callCount(), 4)
+    assertQuotaDisabled()
 
     // Excluded providers cannot fetch, accelerate, or display cached quota.
     for (const provider of ["openai-codex", "openai-codex-2", "anthropic"]) {
@@ -1256,8 +1256,8 @@ test("unified openai OAuth supports speed modes and usage, but API keys do not",
       handlers.get("model_select")({ model: ctx.model }, ctx)
       handlers.get("agent_end")({}, ctx)
       await new Promise(setImmediate)
-      assert.equal(authCalls, 4)
-      assert.equal(fetchMock.mock.callCount(), 4)
+      assert.equal(authCalls, 0)
+      assert.equal(fetchMock.mock.callCount(), 0)
     }
 
     // Transport API names do not determine provider or OAuth eligibility.
@@ -1270,36 +1270,23 @@ test("unified openai OAuth supports speed modes and usage, but API keys do not",
       "ultrafast",
     )
     await commands.get("chatgpt").handler("", ctx)
-    assert.match(footer(), /Ultrafast.*W 42%/)
+    assert.match(footer(), /Ultrafast/)
     assert.equal(ctx.model.api, "openai-codex-responses")
-    assert.equal(authCalls, 5)
-    assert.equal(fetchMock.mock.callCount(), 5)
+    assertQuotaDisabled()
     oauth = false
     await commands.get("chatgpt").handler("", ctx)
     assert.equal(
       handlers.get("before_provider_request")({ payload }, ctx),
       undefined,
     )
-    assert.equal(fetchMock.mock.callCount(), 5)
+    assert.equal(fetchMock.mock.callCount(), 0)
     assert.doesNotMatch(footer(), /Ultrafast|W 42%/)
     oauth = true
     ctx.model.api = "openai-responses"
-    for (const status of [401, 403, 429, 500]) {
-      httpStatus = status
-      await commands.get("chatgpt").handler("", ctx)
-      assert.deepEqual(notifications.at(-1), {
-        message: `Could not load ChatGPT usage limits (HTTP ${status}).`,
-        type: "warning",
-      })
-      assert.ok(footer().includes(`Usage: HTTP ${status}`))
-      assert.doesNotMatch(footer(), /W 42%|private server error/)
-      oauth = false
-      assert.doesNotMatch(footer(), /Usage: HTTP/)
-      oauth = true
+    for (const command of ["chatgpt", "chatgpt-limit"]) {
+      await commands.get(command).handler("", ctx)
+      assertQuotaDisabled()
     }
-    httpStatus = 200
-    await commands.get("chatgpt").handler("", ctx)
-    assert.match(footer(), /W 42%/)
     assert.doesNotMatch(footer(), /5h|Usage: HTTP/)
   } finally {
     await handlers.get("session_shutdown")({}, ctx)
@@ -1311,6 +1298,61 @@ test("unified openai OAuth supports speed modes and usage, but API keys do not",
       if (originalEnv[name] === undefined) delete process.env[name]
       else process.env[name] = originalEnv[name]
     }
+    await rm(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("global footer configuration loads without resolving quota credentials", async (t) => {
+  const originalAgentDir = process.env.PI_CODING_AGENT_DIR
+  const tempDir = await mkdtemp(join(tmpdir(), "pi-chatgpt-config-"))
+  process.env.PI_CODING_AGENT_DIR = tempDir
+  const handlers = new Map()
+  const commands = new Map()
+  const menus = []
+  let authCalls = 0
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => {
+    assert.fail("configuration must not dispatch quota requests")
+  })
+  extension({
+    on: (name, handler) => handlers.set(name, handler),
+    registerCommand: (name, command) => commands.set(name, command),
+  })
+  const ctx = {
+    mode: "rpc",
+    model: { provider: "openai", id: "gpt-5.5" },
+    modelRegistry: {
+      isUsingOAuth: () => true,
+      getApiKeyAndHeaders: async () => {
+        authCalls++
+        return { ok: false }
+      },
+    },
+    sessionManager: { getBranch: () => [] },
+    ui: {
+      select: async (_title, options) => {
+        menus.push(options)
+      },
+    },
+  }
+  try {
+    for (const [quotaWindow, displayMode, expected] of [
+      ["both", "remaining", "Both 5-hour and weekly; Remaining percent"],
+      ["hidden", "used", "Hide usage from footer; Used percent"],
+    ]) {
+      await writeFile(
+        join(tempDir, "chatgpt.json"),
+        JSON.stringify({ quotaWindow, displayMode }),
+      )
+      await handlers.get("session_start")({}, ctx)
+      await commands.get("chatgpt").handler("", ctx)
+      assert.ok(menus.at(-1).some((option) => option.includes(expected)))
+    }
+    assert.equal(authCalls, 0)
+    assert.equal(fetchMock.mock.callCount(), 0)
+  } finally {
+    await handlers.get("session_shutdown")({}, ctx)
+    if (originalAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR
+    else process.env.PI_CODING_AGENT_DIR = originalAgentDir
     await rm(tempDir, { recursive: true, force: true })
   }
 })
@@ -1401,7 +1443,7 @@ test("RPC fallback configures footer when custom UI is unavailable", async () =>
 })
 
 test(
-  "real pi TUI renders the ChatGPT weekly percentage in the footer",
+  "real pi TUI renders its footer without dispatching quota requests",
   { skip: SCRIPT_SKIP },
   async () => {
     const token = fakeJwt({
@@ -1414,11 +1456,7 @@ test(
       },
     })
 
-    const server = await startUsageServer((req, res) => {
-      assert.equal(req.url, "/backend-api/wham/usage")
-      assert.equal(req.headers.authorization, `Bearer ${token}`)
-      assert.equal(req.headers["chatgpt-account-id"], "acct_test")
-
+    const server = await startUsageServer((_req, res) => {
       sendUsageResponse(res, {
         planType: "pro",
         fiveHourUsed: 25.4,
@@ -1434,12 +1472,9 @@ test(
         apiKey: token,
       })
 
-      assert.ok(
-        server.requests.length > 0,
-        "expected real pi extension to call the mocked ChatGPT usage API",
-      )
+      assert.equal(server.requests.length, 0)
       assert.match(output, /gpt-5\.5/)
-      assert.match(output, /42%/)
+      assert.doesNotMatch(stripAnsi(output), /W 42%|5h 25%/)
     } finally {
       await server.close()
     }
@@ -1463,14 +1498,12 @@ test(
       }
       const { output } = await runRealPiTui({
         ...options,
-        waitFor: (text) =>
-          stripAnsi(text).includes("Ultrafast") &&
-          stripAnsi(text).includes("W 42%"),
+        waitFor: (text) => stripAnsi(text).includes("Ultrafast"),
+        settleMs: 500,
       })
       assert.match(stripAnsi(output), /Ultrafast/)
-      assert.match(stripAnsi(output), /W 42%/)
-      assert.ok(server.requests.length > 0)
-      const requestCount = server.requests.length
+      assert.doesNotMatch(stripAnsi(output), /W 42%/)
+      assert.equal(server.requests.length, 0)
       const apiKeyRun = await runRealPiTui({
         ...options,
         runtimeApiKey: "test-api-key",
@@ -1479,7 +1512,7 @@ test(
       })
       assert.match(stripAnsi(apiKeyRun.output), /gpt-6\.1-sol/)
       assert.doesNotMatch(stripAnsi(apiKeyRun.output), /Ultrafast|W 42%/)
-      assert.equal(server.requests.length, requestCount)
+      assert.equal(server.requests.length, 0)
     } finally {
       await server.close()
     }
@@ -1487,7 +1520,7 @@ test(
 )
 
 test(
-  "real pi TUI shows quota rejection and supports weekly-only plans",
+  "real pi TUI never dispatches to rejection or weekly-only quota endpoints",
   { skip: SCRIPT_SKIP },
   async (t) => {
     const token = fakeJwt({})
@@ -1513,17 +1546,19 @@ test(
           )
         })
         try {
-          const expected = status === 401 ? "Usage: HTTP 401" : "W 42%"
           const { output } = await runRealPiTui({
             baseUrl: server.baseUrl,
             apiKey: token,
             model: "gpt-6-astra",
             initialConfig: { quotaWindow: "both", displayMode: "compact" },
-            waitFor: (text) => stripAnsi(text).includes(expected),
+            settleMs: 500,
           })
-          assert.ok(server.requests.length > 0)
-          assert.ok(stripAnsi(output).includes(expected))
-          assert.doesNotMatch(stripAnsi(output), /5h \d+%|private server error/)
+          assert.equal(server.requests.length, 0)
+          assert.match(stripAnsi(output), /gpt-6-astra/)
+          assert.doesNotMatch(
+            stripAnsi(output),
+            /W 42%|Usage: HTTP|5h \d+%|private server error/,
+          )
         } finally {
           await server.close()
         }
@@ -1552,6 +1587,7 @@ test(
 ${expectBlock("Fast")}`,
       })
       assert.match(stripAnsi(output), /Fast/)
+      assert.equal(server.requests.length, 0)
     } finally {
       await server.close()
     }
@@ -1559,19 +1595,13 @@ ${expectBlock("Fast")}`,
 )
 
 test(
-  "real pi TUI loads global footer configuration",
+  "real pi TUI keeps quota disabled with custom and hidden footer configurations",
   { skip: SCRIPT_SKIP },
   async (t) => {
     const token = fakeJwt({
       "https://api.openai.com/auth": { chatgpt_account_id: "acct_global" },
     })
-    let successfulResponses = 0
-    const server = await startUsageServer((req, res) => {
-      assert.equal(req.url, "/backend-api/wham/usage")
-      assert.equal(req.headers.authorization, `Bearer ${token}`)
-      sendUsageResponse(res)
-      successfulResponses++
-    })
+    const server = await startUsageServer((_req, res) => sendUsageResponse(res))
 
     try {
       await t.test("custom display", async () => {
@@ -1579,21 +1609,20 @@ test(
           baseUrl: server.baseUrl,
           apiKey: token,
           initialConfig: { quotaWindow: "both", displayMode: "remaining" },
-          waitFor: (text) =>
-            stripAnsi(text).includes("5h 75% left / W 58% left"),
+          settleMs: 500,
         })
 
-        assert.match(stripAnsi(output), /5h 75% left \/ W 58% left/)
+        assert.match(stripAnsi(output), /gpt-5\.5/)
+        assert.doesNotMatch(stripAnsi(output), /5h 75% left|W 58% left/)
+        assert.equal(server.requests.length, 0)
       })
 
       await t.test("hidden display", async () => {
-        const responseCount = successfulResponses
         const { output } = await runRealPiTui({
           baseUrl: server.baseUrl,
           apiKey: token,
           initialConfig: { quotaWindow: "hidden", displayMode: "used" },
           waitFor: (text) =>
-            successfulResponses > responseCount &&
             stripAnsi(text).includes("gpt-5.5") &&
             stripAnsi(text).includes("(sub)"),
           settleMs: 500,
@@ -1601,7 +1630,7 @@ test(
 
         assert.match(stripAnsi(output), /gpt-5\.5/)
         assert.match(stripAnsi(output), /\(sub\)/)
-        assert.ok(successfulResponses > responseCount)
+        assert.equal(server.requests.length, 0)
         assert.doesNotMatch(stripAnsi(output), /W 42%|5h 25%/)
       })
     } finally {
@@ -1634,27 +1663,20 @@ test(
         initialConfig: defaultConfig,
         expectedConfig: defaultConfig,
         expectedConfigWritten: false,
-        // Match the footer's separator, not the identical example in the menu.
         scriptBody: `${expectBlock("Configure footer display mode")}
 send "${expectSendLiteral(displayModeMenu)}"
 ${expectBlock("How should the footer value be shown?")}
 send "${expectSendLiteral(down)}"
-expect {
-  -re ${tclDoubleQuote("• (?:\\x1b\\[[0-9;]*m)*W 42% · ~2d")} {}
-  timeout { exit 1 }
-  eof { exit 1 }
-}
+${expectBlock("Used percent with reset, e.g. W 42% · ~2d")}
 send "${expectSendLiteral(escape)}"
-expect {
-  -re ${tclDoubleQuote("• (?:\\x1b\\[[0-9;]*m)*W 42%\\x1b")} {}
-  timeout { exit 1 }
-  eof { exit 1 }
-}`,
+after 100
+send "/chatgpt\\r"
+${expectBlock("Configure footer display mode")}`,
       })
       const previewText = stripAnsi(previewOutput)
-      const previewIndex = previewText.lastIndexOf("W 42% · ~2d")
-      assert.ok(previewIndex >= 0, previewText)
-      assert.ok(previewText.lastIndexOf("W 42%") > previewIndex, previewText)
+      assert.match(previewText, /How should the footer value be shown\?/)
+      assert.match(previewText, /Configure footer display mode/)
+      assert.equal(server.requests.length, 0)
 
       const resetOutput = await runRealPiTuiExpect({
         baseUrl: server.baseUrl,
@@ -1668,6 +1690,7 @@ send "${expectSendLiteral(enter)}"
 ${expectBlock("ChatGPT footer settings reset to defaults.")}`,
       })
       assert.match(stripAnsi(resetOutput), /settings reset to defaults/)
+      assert.equal(server.requests.length, 0)
     } finally {
       await server.close()
     }
@@ -1787,6 +1810,7 @@ test(
             expectText: testCase.expectText,
             expectedConfig: testCase.expectedConfig,
           })
+          assert.equal(server.requests.length, 0)
         } finally {
           await server.close()
         }
@@ -1796,7 +1820,7 @@ test(
 )
 
 test(
-  "real pi TUI still fetches usage when PI_OFFLINE is set",
+  "real pi TUI never dispatches quota requests when PI_OFFLINE is set",
   { skip: SCRIPT_SKIP },
   async () => {
     const token = fakeJwt({
@@ -1819,10 +1843,8 @@ test(
         trustEnvName: "CHATGPT_LIMIT_TRUST_CUSTOM_BASE_URL",
       })
 
-      assert.ok(
-        server.requests.length > 0,
-        `expected usage fetch even when PI_OFFLINE=1; output was:\n${output}`,
-      )
+      assert.match(stripAnsi(output), /gpt-5\.5/)
+      assert.equal(server.requests.length, 0)
     } finally {
       await server.close()
     }

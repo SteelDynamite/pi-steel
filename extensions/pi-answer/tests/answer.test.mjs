@@ -47,12 +47,14 @@ function harness({ result = extracted(), branch = [assistant("Database?")], edit
 		},
 	};
 	let command, shortcut;
+	const events = {};
 	load(api).default({
+		on: (event, handler) => { events[event] = handler; },
 		registerCommand(name, options) { assert.equal(name, "answer"); command = options.handler; },
 		registerShortcut(key, options) { assert.equal(key, "ctrl+."); shortcut = options.handler; },
 		sendMessage: (...args) => calls.sends.push(args),
 	});
-	return { calls, ctx, run: () => command("", ctx), shortcut: () => shortcut(ctx) };
+	return { calls, ctx, events, run: () => command("", ctx), shortcut: () => shortcut(ctx) };
 }
 
 for (const text of ["", "not JSON", "null", "[]", '{"questions":{}}', '```json\n{"questions":\n```']) {
@@ -262,7 +264,7 @@ test("terminal cancellation aborts extraction without falling back to RPC", asyn
 		loader.dispose();
 	}) });
 	await h.run();
-	assert.equal(h.calls.requests[0][2].signal.aborted, true);
+	assert.equal(h.calls.requests.length, 0); // Cancellation during auth prevents dispatch.
 	assert.equal(h.calls.editors.length, 0);
 	assert.equal(h.calls.sends.length, 0);
 });
@@ -282,4 +284,109 @@ test("terminal extraction and questionnaire complete through custom callbacks", 
 	assert.equal(screens, 2);
 	assert.equal(h.calls.editors.length, 0);
 	assert.equal(h.calls.sends.length, 1);
+});
+
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+test("questionnaire fits narrow/resized widths with many questions and Unicode editing", () => {
+	const component = new QnAComponent(Array.from({ length: 40 }, () => ({
+		question: "日本語 é 🙂?", context: "中文 context", recommendedAnswer: "answer",
+	})), screen, () => {});
+	component.focused = true;
+	component.handleInput("日本語 é\nsecond line");
+	for (const width of [80, 14, 1, 2, 5, 11, 12, 20, 120, 0, 80]) {
+		const lines = component.render(width);
+		for (const line of lines) assert.ok(tui.visibleWidth(line) <= width, `width ${width}: ${tui.visibleWidth(line)}`);
+		if (width >= 12) assert.ok(lines.some((line) => line.includes(tui.CURSOR_MARKER)));
+	}
+});
+test("wrapper forwards focus and ghost preview preserves cursor marker", () => {
+	const component = new QnAComponent([question], screen, () => {});
+	component.focused = true;
+	assert.equal(component.editor.focused, true);
+	assert.ok(component.render(80).some((line) => line.includes(tui.CURSOR_MARKER)));
+	component.handleInput("text");
+	assert.ok(component.render(14).some((line) => line.includes(tui.CURSOR_MARKER)));
+	component.focused = false;
+	assert.equal(component.editor.focused, false);
+	assert.ok(component.render(80).every((line) => !line.includes(tui.CURSOR_MARKER)));
+});
+test("loader animates at a constant width", async () => {
+	const loader = new ExtractionLoader(screen, theme, "Extracting...");
+	try {
+		const before = loader.render(80);
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		assert.notDeepEqual(loader.render(80), before);
+	} finally { loader.dispose(); }
+});
+test("modern host owns neutral dispatch and auth resolution", async () => {
+	const h = harness();
+	h.ctx.modelRegistry.getApiKeyAndHeaders = () => { throw new Error("must not pre-resolve auth"); };
+	h.ctx.modelRegistry.streamSimple = (received, context, options) => {
+		assert.equal(received, model);
+		assert.equal(context.messages[0].content[0].text, "Database?");
+		assert.ok(options.signal instanceof AbortSignal);
+		return { result: async () => extracted() };
+	};
+	await h.run();
+	assert.equal(h.calls.requests.length, 0);
+	assert.equal(h.calls.sends.length, 1);
+});
+test("legacy resolved endpoint and environment reach completion", async () => {
+	const h = harness();
+	h.ctx.modelRegistry.getApiKeyAndHeaders = async () => ({ ok: true, apiKey: "key", baseUrl: "https://endpoint.invalid", env: { ROUTE: "test" }, headers: { route: "test" } });
+	await h.run();
+	assert.equal(h.calls.requests[0][0].baseUrl, "https://endpoint.invalid");
+	assert.deepEqual(h.calls.requests[0][2].env, { ROUTE: "test" });
+	assert.deepEqual(h.calls.requests[0][2].headers, { route: "test" });
+});
+for (const source of ["signal", "shutdown"]) {
+	test(`${source} invalidates a pending RPC editor response`, async () => {
+		const h = harness({ result: extracted([question, question]) });
+		const controller = new AbortController();
+		h.ctx.signal = controller.signal;
+		let respond;
+		h.ctx.ui.editor = () => new Promise((resolve) => { respond = resolve; });
+		const running = h.run();
+		await tick();
+		assert.ok(respond);
+		if (source === "signal") controller.abort(); else h.events.session_shutdown();
+		await running;
+		respond("late answer");
+		await tick();
+		assert.equal(h.calls.sends.length, 0);
+	});
+}
+test("abort during legacy auth prevents dispatch", async () => {
+	const h = harness();
+	const controller = new AbortController();
+	h.ctx.signal = controller.signal;
+	let resolveAuth;
+	h.ctx.modelRegistry.getApiKeyAndHeaders = () => new Promise((resolve) => { resolveAuth = resolve; });
+	const running = h.run();
+	await tick();
+	controller.abort();
+	await running;
+	resolveAuth({ ok: true, apiKey: "late" });
+	await tick();
+	assert.equal(h.calls.requests.length, 0);
+	assert.equal(h.calls.sends.length, 0);
+});
+test("abort dismisses terminal questionnaire and ignores late submit", async () => {
+	let component;
+	let screens = 0;
+	const h = harness({ custom: (factory) => new Promise((resolve) => {
+		const view = factory(screen, theme, {}, (value) => { view?.dispose?.(); resolve(value); });
+		if (++screens === 2) component = view;
+	}) });
+	const controller = new AbortController();
+	h.ctx.signal = controller.signal;
+	const running = h.run();
+	await tick();
+	assert.ok(component);
+	controller.abort();
+	await running;
+	component.handleInput("late");
+	component.handleInput("\r");
+	component.handleInput("y");
+	assert.equal(h.calls.sends.length, 0);
 });

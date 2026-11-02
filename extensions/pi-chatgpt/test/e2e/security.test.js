@@ -1,9 +1,10 @@
 import assert from "node:assert/strict"
+import { readFile } from "node:fs/promises"
 import test from "node:test"
 import { SelectList } from "@earendil-works/pi-tui"
 import extension, { __test__ } from "../../extensions/chatgpt.js"
 
-test("untrusted display text cannot emit terminal controls or alter provider payloads", async (t) => {
+test("untrusted text cannot escape the footer, trigger quota dispatch, or alter provider payloads", async (t) => {
   const controls = "\x1b]52;c;UE9D\x07\x1b[31m\x1bPdata\x1b\\\x9b31m\r\n\t"
   const token = `e30.${Buffer.from(
     JSON.stringify({
@@ -17,6 +18,7 @@ test("untrusted display text cannot emit terminal controls or alter provider pay
   const commands = new Map()
   const menus = []
   const notifications = []
+  let authCalls = 0
   extension({
     on: (name, handler) => events.set(name, handler),
     registerCommand: (name, command) => commands.set(name, command),
@@ -27,7 +29,10 @@ test("untrusted display text cannot emit terminal controls or alter provider pay
     model: { provider: "openai", id: "gpt-5.5", contextWindow: 1000 },
     modelRegistry: {
       isUsingOAuth: () => true,
-      getApiKeyAndHeaders: async () => ({ ok: true, apiKey: token }),
+      getApiKeyAndHeaders: async () => {
+        authCalls++
+        return { ok: true, apiKey: token }
+      },
     },
     sessionManager: {
       getEntries: () => [],
@@ -43,42 +48,30 @@ test("untrusted display text cannot emit terminal controls or alter provider pay
       notify: (message) => notifications.push(message),
     },
   }
-  let metadata
-  const fetchMock = t.mock.method(
-    globalThis,
-    "fetch",
-    async (_url, options) => {
-      assert.equal(options.headers.Authorization, `Bearer ${token}`)
-      return new Response(
-        JSON.stringify({
-          ...metadata,
-          rate_limit: {
-            primary_window: { used_percent: 42, limit_window_seconds: 604800 },
-          },
-        }),
-      )
-    },
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => {
+    assert.fail("quota must not dispatch for unverified credentials")
+  })
+  // Parsing retains raw metadata; fail-closed commands must never display it.
+  assert.equal(
+    __test__.getTokenMetadata(token).email,
+    `jwt${controls}@example.com`,
   )
-  for (const source of ["remote", "jwt"]) {
-    metadata =
-      source === "remote"
-        ? {
-            email: `remote${controls}@example.com`,
-            plan_type: `remote-plan${controls}`,
-          }
-        : {}
+  const snapshot = __test__.parseUsageSnapshot({
+    email: `remote${controls}@example.com`,
+    plan_type: `remote-plan${controls}`,
+  })
+  assert.equal(snapshot.email, `remote${controls}@example.com`)
+  assert.equal(snapshot.planType, `remote-plan${controls}`)
+  for (const command of ["chatgpt", "chatgpt-limit"]) {
     const previousMenus = menus.length
-    await commands.get("chatgpt").handler("", ctx)
-    assert.equal(menus.length, previousMenus + 2)
-    const details = menus.at(-1)
-    assert.ok(details.includes("provider: openai"))
-    assert.ok(details.some((line) => line.startsWith(`plan: ${source}-plan`)))
-    assert.ok(
-      details.some(
-        (line) =>
-          line.startsWith(`email: ${source}`) && line.endsWith("@example.com"),
-      ),
+    await commands.get(command).handler("", ctx)
+    assert.equal(menus.length, previousMenus + 1)
+    assert.match(
+      notifications.at(-1),
+      /quota requests disabled.*Settings → Usage/,
     )
+    assert.doesNotMatch(notifications.at(-1), /jwt|remote-plan|@example\.com/)
+    const details = menus.at(-1)
     const identity = (value) => value
     const selector = new SelectList(
       details.map((label) => ({ value: label, label })),
@@ -95,7 +88,9 @@ test("untrusted display text cannot emit terminal controls or alter provider pay
       assert.doesNotMatch(line, /[\x00-\x1f\x7f-\x9f]/)
     }
   }
-  assert.equal(fetchMock.mock.callCount(), 2)
+  assert.equal(authCalls, 0)
+  assert.equal(fetchMock.mock.callCount(), 0)
+  notifications.length = 0
   ctx.model.id = `gpt-5.5${controls}`
   for (const provider of ["openai", `other${controls}`]) {
     ctx.model.provider = provider
@@ -131,6 +126,60 @@ test("untrusted display text cannot emit terminal controls or alter provider pay
     service_tier: "ultrafast",
   })
   assert.equal(payload.input, controls)
+})
+
+test("footer hides cached quota and HTTP errors while preserving speed and statuses", async () => {
+  // Seed private state only in an isolated test module, without resolving credentials.
+  const source = await readFile(
+    new URL("../../extensions/chatgpt.js", import.meta.url),
+    "utf8",
+  )
+  const ctx = {
+    model: { provider: "openai", id: "gpt-6-astra", contextWindow: 1000 },
+    modelRegistry: { isUsingOAuth: () => true },
+    sessionManager: {
+      getEntries: () => [],
+      getCwd: () => "/project",
+      getSessionName: () => undefined,
+    },
+    getContextUsage: () => ({ contextWindow: 1000, percent: 10 }),
+  }
+  const footerData = {
+    getGitBranch: () => undefined,
+    getAvailableProviderCount: () => 1,
+    getExtensionStatuses: () => new Map([["tokenSpeed", "42 tok/s"]]),
+  }
+  for (const snapshot of [
+    { weekly: { usedPercent: 42, resetAt: 1234567890 } },
+    { httpStatus: 401 },
+  ]) {
+    const seeded = source
+      .replace(
+        "let usageSnapshot",
+        `let usageSnapshot = ${JSON.stringify(snapshot)}`,
+      )
+      .replace(
+        '"@earendil-works/pi-tui"',
+        JSON.stringify(import.meta.resolve("@earendil-works/pi-tui")),
+      )
+    const isolated = await import(
+      `data:text/javascript;base64,${Buffer.from(seeded).toString("base64")}`
+    )
+    const rendered = isolated.__test__
+      .renderFooter(
+        {},
+        ctx,
+        footerData,
+        { fg: (_color, text) => text },
+        160,
+        "ultrafast",
+      )
+      .join("\n")
+    assert.match(rendered, /Ultrafast/)
+    assert.match(rendered, /42 tok\/s/)
+    assert.match(rendered, /10\.0%\/1\.0k/)
+    assert.doesNotMatch(rendered, /W 42%|5h|WP |Usage:|401|quota|unavailable/i)
+  }
 })
 
 test("quota windows reject nonfinite numbers and reset arithmetic overflow", () => {

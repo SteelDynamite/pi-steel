@@ -213,20 +213,20 @@ test("transcript serialization excludes supervisor messages and keeps head and t
 	const text = serializeTranscript(entries, 130);
 	assert.equal(text.length, 130);
 	assert.match(text, /^user: anchor/);
-	assert.match(text, /assistant: tail evidence$/);
+	assert.match(text, /assistant: tail evidence\n\[assistant stopReason: stop\]$/);
 	assert.match(text, /truncated/);
 	assert.doesNotMatch(text, /goal context|not evidence|status/);
 
 	const oversizedTail = serializeTranscript(
 		[
 			{ type: "message", message: { role: "user", content: "head", timestamp: 1 } },
-			{ type: "message", message: { role: "assistant", content: [{ type: "text", text: `latest-${"z".repeat(300)}` }] } },
+			{ type: "message", message: { role: "assistant", content: [{ type: "text", text: `latest-${"z".repeat(300)}` }], stopReason: "stop" } },
 		] as any[],
-		100,
+		160,
 	);
-	assert.equal(oversizedTail.length, 100);
+	assert.equal(oversizedTail.length, 160);
 	assert.match(oversizedTail, /^user: head/);
-	assert.match(oversizedTail, /z{20}$/);
+	assert.match(oversizedTail, /z{20}\n\[assistant stopReason: stop\]$/);
 });
 
 test("goal context is immutable while continuation carries evaluator guidance", () => {
@@ -289,9 +289,11 @@ test("extension uses turn boundaries for atomic continuation", async () => {
 		signal: new AbortController().signal,
 		hasPendingMessages: () => false,
 		modelRegistry: {
-			async complete(_model: unknown, context: unknown, options: unknown) {
-				completions.push({ context, options });
-				return { content: [{ type: "text", text: evaluatorResponses.shift() }], stopReason: "stop" };
+			streamSimple(_model: unknown, context: unknown, options: unknown) {
+				return { result: async () => {
+					completions.push({ context, options });
+					return { content: [{ type: "text", text: evaluatorResponses.shift() }], stopReason: "stop" };
+				} };
 			},
 		},
 		sessionManager: {
@@ -316,13 +318,13 @@ test("extension uses turn boundaries for atomic continuation", async () => {
 	assert.equal(latestGoalState(entries)?.status, "active");
 
 	projectionMessages = [];
-	const evaluated = await handlers.get("turn_end")?.({ outcome: "completed", message: { role: "assistant", stopReason: "stop" }, entries: [] }, ctx);
+	const evaluated = await handlers.get("turn_end")?.({ outcome: "completed", message: { role: "assistant", stopReason: "stop" }, entries: [], context: { contextMessages: projectionMessages } }, ctx);
 	assert.equal(evaluated.continue, true);
 	assert.equal(evaluated.entries.length, 1);
 	assert.equal(evaluated.entries[0].customType, GOAL_EVALUATION_MESSAGE);
 	assert.equal(evaluated.entries[0].content.startsWith(GOAL_CONTINUATION_PREFIX), true);
 	assert.equal(completions.length, 1);
-	assert.equal(completions[0].options.signal, ctx.signal);
+	assert.ok(completions[0].options.signal instanceof AbortSignal);
 	assert.equal(completions[0].options.cacheRetention, "short");
 	assert.equal(latestGoalState(entries)?.evaluatedTurns, 1);
 	assert.equal(continuations.length, 1);
@@ -330,7 +332,7 @@ test("extension uses turn boundaries for atomic continuation", async () => {
 
 	const marker = { role: "custom", ...sent[0].message };
 	projectionMessages = [marker];
-	const continued = await handlers.get("turn_end")?.({ outcome: "completed", message: { role: "assistant", stopReason: "stop" }, entries: [] }, ctx);
+	const continued = await handlers.get("turn_end")?.({ outcome: "completed", message: { role: "assistant", stopReason: "stop" }, entries: [], context: { contextMessages: projectionMessages } }, ctx);
 	assert.equal(continued.continue, true);
 	assert.equal(continued.entries[0].content.startsWith(GOAL_CONTINUATION_PREFIX), true);
 	assert.equal(completions.length, 2);
@@ -341,7 +343,7 @@ test("extension uses turn boundaries for atomic continuation", async () => {
 	const restored = await handlers.get("before_agent_start")?.({ systemPrompt: "base" }, ctx);
 	assert.equal(restored.message.customType, GOAL_CONTEXT_MESSAGE);
 	projectionMessages = [{ role: "custom", ...restored.message }];
-	const achieved = await handlers.get("turn_end")?.({ outcome: "completed", message: { role: "assistant", stopReason: "stop" }, entries: [] }, ctx);
+	const achieved = await handlers.get("turn_end")?.({ outcome: "completed", message: { role: "assistant", stopReason: "stop" }, entries: [], context: { contextMessages: projectionMessages } }, ctx);
 	assert.equal(achieved.continue, undefined);
 	assert.equal(achieved.entries.length, 1);
 	assert.equal(achieved.entries[0].customType, GOAL_EVALUATION_MESSAGE);
@@ -351,7 +353,7 @@ test("extension uses turn boundaries for atomic continuation", async () => {
 	assert.equal(latestGoalState(entries)?.status, "achieved");
 });
 
-test("evaluator abort preserves active state and remains resumable", async () => {
+test("run interruption during evaluation clears the goal at settlement", async () => {
 	const handlers = new Map<string, Function>();
 	const commands = new Map<string, Function>();
 	const entries: any[] = [];
@@ -379,13 +381,15 @@ test("evaluator abort preserves active state and remains resumable", async () =>
 		signal: controller.signal,
 		hasPendingMessages: () => false,
 		modelRegistry: {
-			async complete(_model: unknown, _context: unknown, options: any) {
+			streamSimple(_model: unknown, _context: unknown, options: any) {
+				return { result: async () => {
 				completionCount++;
 				if (completionCount > 1) return { content: [{ type: "text", text: '{"met":true,"reason":"done"}' }], stopReason: "stop" };
 				evaluatorStarted();
 				return await new Promise((_, reject) => {
 					options.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
 				});
+				} };
 			},
 		},
 		sessionManager: {
@@ -401,23 +405,24 @@ test("evaluator abort preserves active state and remains resumable", async () =>
 
 	const evaluation = handlers
 		.get("turn_end")
-		?.({ outcome: "completed", message: { role: "assistant", stopReason: "stop" }, entries: [] }, ctx);
+		?.({ outcome: "completed", message: { role: "assistant", stopReason: "stop" }, entries: [], context: { contextMessages: [] } }, ctx);
 	await started;
 	controller.abort();
 	assert.equal(await evaluation, undefined);
-	assert.equal(latestGoalState(entries)?.status, "active");
+	await handlers.get("agent_settled")?.({ aborted: true }, ctx);
+	assert.equal(latestGoalState(entries)?.status, "cleared");
 	assert.equal(latestGoalState(entries)?.evaluatedTurns, 0);
 	assert.equal(entries.some((entry) => entry.customType === GOAL_EVALUATION_MESSAGE), false);
 
 	ctx.signal = new AbortController().signal;
 	const resumed = await handlers
 		.get("turn_end")
-		?.({ outcome: "completed", message: { role: "assistant", stopReason: "stop" }, entries: [] }, ctx);
-	assert.equal(resumed.entries[0].customType, GOAL_EVALUATION_MESSAGE);
-	assert.equal(latestGoalState(entries)?.status, "achieved");
+		?.({ outcome: "completed", message: { role: "assistant", stopReason: "stop" }, entries: [], context: { contextMessages: [] } }, ctx);
+	assert.equal(resumed, undefined);
+	assert.equal(completionCount, 1);
 });
 
-test("boundary continuation cannot escape through delayed input after clear", async () => {
+test("boundary continuation does not dispatch a second user input",  async () => {
 	const handlers = new Map<string, Function>();
 	const commands = new Map<string, Function>();
 	const entries: any[] = [];
@@ -448,8 +453,8 @@ test("boundary continuation cannot escape through delayed input after clear", as
 		signal: new AbortController().signal,
 		hasPendingMessages: () => false,
 		modelRegistry: {
-			async complete() {
-				return { content: [{ type: "text", text: '{"met":false,"reason":"missing","continuation":"keep going"}' }], stopReason: "stop" };
+			streamSimple() {
+				return { result: async () => ({ content: [{ type: "text", text: '{"met":false,"reason":"missing","continuation":"keep going"}' }], stopReason: "stop" }) };
 			},
 		},
 		sessionManager: {
@@ -464,7 +469,7 @@ test("boundary continuation cannot escape through delayed input after clear", as
 	await commands.get("goal")?.("finish safely", ctx);
 	const boundary = await handlers
 		.get("turn_end")
-		?.({ outcome: "completed", message: { role: "assistant", stopReason: "stop" }, entries: [] }, ctx);
+		?.({ outcome: "completed", message: { role: "assistant", stopReason: "stop" }, entries: [], context: { contextMessages: [] } }, ctx);
 	assert.equal(boundary.continue, true);
 	assert.equal(boundary.entries[0].content.startsWith(GOAL_CONTINUATION_PREFIX), true);
 
@@ -519,9 +524,11 @@ test("tool-turn compaction restores one context marker before the next request",
 		signal: new AbortController().signal,
 		hasPendingMessages: () => false,
 		modelRegistry: {
-			async complete() {
-				completionCount++;
-				return { content: [{ type: "text", text: '{"met":true,"reason":"done"}' }], stopReason: "stop" };
+			streamSimple() {
+				return { result: async () => {
+					completionCount++;
+					return { content: [{ type: "text", text: '{"met":true,"reason":"done"}' }], stopReason: "stop" };
+				} };
 			},
 		},
 		sessionManager: {

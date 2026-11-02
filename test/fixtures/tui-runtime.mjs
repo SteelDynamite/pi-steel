@@ -55,9 +55,20 @@ export default function (pi) {
   });
   pi.registerProvider("steel-tui-local", {
     api: "steel-tui-local", baseUrl: "http://invalid.invalid", apiKey: "local-fixture-not-a-credential",
-    models: [{ id: "fixture", name: "TUI local fixture", reasoning: false, input: ["text"],
-      contextWindow: 128000, maxTokens: 1024, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
+    models: ["fixture", "suggestion"].map(id => ({ id, name: `TUI local ${id}`, reasoning: false, input: ["text"],
+      contextWindow: 128000, maxTokens: 1024, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } })),
     streamSimple(model, context) {
+      if (model.id === "suggestion") {
+        record({ event: "suggestion-request" });
+        const stream = createAssistantMessageEventStream();
+        const message = { role: "assistant", api: model.api, provider: model.provider, model: model.id,
+          timestamp: Date.now(), content: [{ type: "text", text: "" }], stopReason: "stop",
+          usage: { input: 1, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 1,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
+        stream.push({ type: "done", reason: "stop", message });
+        stream.end();
+        return stream;
+      }
       const hasTodo = context.messages.some(message => message.role === "toolResult" && message.toolName === "todo");
       record({ event: "request", active: active(), hasTodo,
         warning: context.messages.some(message => JSON.stringify(message).includes("Saved loadout changes are not applied")) });

@@ -2,13 +2,13 @@
 
 A [pi](https://pi.dev) extension for ChatGPT Codex usage and speed modes.
 
-It shows configurable ChatGPT subscription usage next to the active Codex model, provides detailed 5-hour and weekly limits, and can request OpenAI Codex Fast or Ultrafast mode for supported models.
+It provides footer status and requests OpenAI Codex Fast or Ultrafast mode for supported models. Weekly/5-hour quotas, reset times and quota errors are hidden until supported direct-OAuth quota access exists. Speed indicators, session statistics and other extension statuses remain visible. Quota fetching is also disabled: Pi does not expose trustworthy OAuth provenance for the exact resolved credential. Use [ChatGPT Settings → Usage](https://chatgpt.com/settings/usage).
 
 ## Preview
 
 ![Footer preview](https://github.com/patlux/pi-chatgpt-limit/releases/download/preview-assets/footer-preview.png)
 
-Footer display variants and color thresholds:
+Historical quota display variants (quota information is currently hidden):
 
 ![Footer display variants and color thresholds](https://github.com/patlux/pi-chatgpt-limit/releases/download/preview-assets/footer-variants-readable.png)
 
@@ -36,7 +36,7 @@ When upgrading from `pi-chatgpt-limit`, remove the old package after installing 
 
 ## Compatibility
 
-The integration target is Pi 0.99.1 and newer. CI exercises exact Pi 0.99.1 and 1.1.0 hosts on Node 24, including interactive footer and command tests with synthetic OAuth credentials and a local usage server. Older hosts such as 0.79.6 predate the unified `openai` OAuth integration and are not covered by that support target. This test matrix does not upgrade your installed Pi, change runtime APIs, or establish live usage-endpoint access.
+The integration target is Pi 0.99.1 and newer. The declared CI matrix uses exact Pi 0.99.1 and 1.1.0 hosts on Node 24. Local regression tests use Pi 1.4.0's real credential facade with synthetic credentials and verify that no quota credential is resolved or sent. Older hosts such as 0.79.6 predate the unified `openai` OAuth integration and are not covered by that support target. This test matrix does not upgrade your installed Pi, change runtime APIs, or establish live usage-endpoint access.
 
 Only the unified `openai` provider is supported. Obsolete `openai-codex` and numbered variants such as `openai-codex-2` receive no usage requests, speed overrides, or passive diagnostic capture. Select an `openai` model and use its ChatGPT OAuth option in `/login`; do not copy or relabel old credentials. Transport API IDs such as `openai-codex-responses` are distinct from provider IDs and are not rewritten.
 
@@ -44,7 +44,7 @@ Local type declarations and mocked diagnostic tests are not substitutes for host
 
 ## Usage limits
 
-The footer percentage appears only while using an `openai` model authenticated with **ChatGPT OAuth** through pi's `/login` flow. API-key authentication does not enable ChatGPT usage fetching.
+Quota requests are disabled for all credentials, including OAuth, API keys, and trusted custom endpoints. Pi 1.4.0's `getApiKeyAndHeaders` strips exact-result authentication provenance; its independent cached `isUsingOAuth` check cannot prove that the resolved credential is OAuth. The extension neither resolves quota credentials nor refreshes authentication.
 
 Run:
 
@@ -52,24 +52,17 @@ Run:
 /chatgpt
 ```
 
-This shows and configures:
-
-- plan and account email when available
-- 5-hour and weekly usage windows and reset times
-- weekly, 5-hour, both, or hidden footer usage
-- used, remaining, pace, and reset-time display variants
+This retains weekly, 5-hour, both, or hidden preferences and used, remaining, pace, and reset-time variants for compatibility. Saved preferences do not reenable footer quotas or errors while support is blocked; plan/account details and numeric usage are unavailable.
 
 `/chatgpt-limit` remains as a compatibility alias.
 
-In interactive Pi, usage refreshes on session start, model changes, and completed agent runs, independently of the selected speed mode. `/chatgpt` → “Show current usage details” also refreshes it manually, including after `/login`. Pi resolves the effective credential and refreshes expiring OAuth tokens before each usage request.
+`/chatgpt` → “Show current usage details” explains the provenance blocker and points to ChatGPT Settings → Usage. Session/model events and completed agent runs send no quota requests. Footer settings and speed modes remain available.
 
-Some plans return only a weekly window. With “Both” selected, the footer shows whichever windows the endpoint provides; a missing 5-hour window does not hide weekly usage. Windows containing nonfinite numeric quota values or reset timestamps that overflow millisecond conversion are ignored, not treated as zero usage. Missing reset times remain unknown.
+No quota values or HTTP-error placeholders appear in the footer, even if cached data exists. The retained parser rejects nonfinite quota values and overflowing reset timestamps rather than treating them as zero. No server error bodies or credentials are displayed.
 
-If the usage endpoint rejects a request, the footer shows a safe status such as `Usage: HTTP 401` (unless hidden), and `/chatgpt` reports the HTTP status. Server error bodies and credentials are never displayed. Successful refreshes replace the error with usage again.
+**Direct OAuth quota remains upstream-blocked.** As checked on 2026-11-02, OpenAI [does not support remaining-quota access for direct-use OAuth](https://github.com/openai/sign-in-with-chatgpt-devkit/issues/3#issuecomment-5936080960). The existing usage probe returned HTTP 401 with that grant. Use [ChatGPT Settings → Usage](https://chatgpt.com/settings/usage); reloading or changing provider names does not fix endpoint authorization. No separate legacy login, Codex installation, or guessed endpoint is a supported workaround.
 
-**Direct OAuth quota remains upstream-blocked.** As checked on 2026-10-12, OpenAI [does not support remaining-quota access for direct-use OAuth](https://github.com/openai/sign-in-with-chatgpt-devkit/issues/3#issuecomment-5936080960). The existing usage probe returned HTTP 401 with that grant. Use [ChatGPT Settings → Usage](https://chatgpt.com/settings/usage); reloading or changing provider names does not fix endpoint authorization. No separate legacy login, Codex installation, or guessed endpoint is a supported workaround.
-
-Examples:
+Retained display formats (not currently shown):
 
 - `W 42%`
 - `W 42% · ~2d`
@@ -151,15 +144,15 @@ The file stores footer preferences, `speedMode`, and the compatibility `fastMode
 
 ## Endpoint and security
 
-Usage is fetched from:
+The retained endpoint configuration targets (no requests are currently sent):
 
 ```txt
 GET https://chatgpt.com/backend-api/wham/usage
 ```
 
-The request uses the OAuth token resolved by pi for the active `openai` provider. Authentication is checked through pi's model registry, not inferred from the model's API type, base URL, or token contents. By default, bearer tokens are sent only to HTTPS URLs on the `https://chatgpt.com` origin.
+Quota transport fails closed before credential resolution. Reenabling it requires both a supported upstream quota source and a host contract binding typed OAuth provenance to the exact model-level credential, including overrides. Token claims, cached OAuth status, and human-readable provider source labels are not substitutes. Authentication refresh remains host-owned.
 
-Known credential-safety limitation: the registry's cached OAuth check is not bound to the exact fresh credential returned by `getApiKeyAndHeaders`. A concurrent change from OAuth to an API key can pass that check and send the key to the usage endpoint. Restricting provider IDs does not resolve this provenance race.
+Queued quota work and pending initial usage menus are invalidated on shutdown/session replacement before accessing stale contexts. This does not establish complete lifecycle isolation for already-open configuration dialogs or global configuration writes; those remain tracked debt.
 
 Account details, displayed model/provider names, and project/session labels have terminal escape sequences and control characters removed before rendering. Provider-bound identifiers and payloads are unchanged; trusted extension status styling is preserved.
 

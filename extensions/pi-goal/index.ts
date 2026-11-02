@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext, SessionBoundaryDraft } from "./src/pi-types.ts";
+import type { ExtensionAPI, ExtensionContext, SessionBoundaryDraft, SessionMessage } from "./src/pi-types.ts";
 import type { Message } from "@earendil-works/pi-ai";
 import {
 	buildContinuationPrompt,
@@ -28,7 +28,7 @@ import {
 
 export default function goalExtension(pi: ExtensionAPI): void {
 	let state: GoalState | undefined;
-	let evaluating = false;
+	let evaluation: AbortController | undefined;
 	const disabledInOrchestratedChild = isOrchestratedChild();
 
 	function branchState(ctx: ExtensionContext): GoalState | undefined {
@@ -36,6 +36,7 @@ export default function goalExtension(pi: ExtensionAPI): void {
 	}
 
 	function persist(next: GoalState | undefined, ctx?: ExtensionContext): void {
+		evaluation?.abort();
 		state = next;
 		if (next) pi.appendEntry(GOAL_STATE_ENTRY, next);
 		if (ctx) updateStatus(ctx);
@@ -82,23 +83,24 @@ export default function goalExtension(pi: ExtensionAPI): void {
 		return evaluationEntry(`Goal stopped: ${reason}`);
 	}
 
-	async function evaluateGoal(ctx: ExtensionContext, signal: AbortSignal | undefined): Promise<EvaluatorResult> {
+	async function evaluateGoal(ctx: ExtensionContext, messages: SessionMessage[], signal: AbortSignal | undefined): Promise<EvaluatorResult> {
 		if (!state) throw new Error("No active goal");
 		if (!ctx.model) throw new Error("No current model is selected");
-		const prompt = buildEvaluatorPrompt(state, ctx.sessionManager.getBranch());
+		// The boundary preview includes earlier handlers' uncommitted edits and compaction.
+		const prompt = buildEvaluatorPrompt(state, messages.map((message) => ({ type: "message", message })));
 		const userMessage: Message = {
 			role: "user",
 			content: prompt,
 			timestamp: Date.now(),
 		};
-		const response = await ctx.modelRegistry.complete(
+		const response = await ctx.modelRegistry.streamSimple(
 			ctx.model,
 			{
 				systemPrompt: buildEvaluatorSystemPrompt(),
 				messages: [userMessage],
 			},
 			buildEvaluatorCompleteOptions(signal, ctx.sessionManager.getSessionId()),
-		);
+		).result();
 		return parseEvaluatorResponse(extractEvaluatorText(response));
 	}
 
@@ -140,6 +142,7 @@ export default function goalExtension(pi: ExtensionAPI): void {
 	});
 
 	function restoreState(_event: unknown, ctx: ExtensionContext): void {
+		evaluation?.abort();
 		state = disabledInOrchestratedChild ? undefined : branchState(ctx);
 		updateStatus(ctx);
 	}
@@ -163,7 +166,7 @@ export default function goalExtension(pi: ExtensionAPI): void {
 	pi.on("turn_end", async (event, ctx) => {
 		if (
 			disabledInOrchestratedChild ||
-			evaluating ||
+			evaluation ||
 			state?.status !== "active" ||
 			event.outcome !== "completed" ||
 			event.message.role !== "assistant" ||
@@ -173,10 +176,11 @@ export default function goalExtension(pi: ExtensionAPI): void {
 			return;
 		}
 		const evaluatedGoal = state;
-		const evaluationSignal = ctx.signal;
-		evaluating = true;
+		const controller = new AbortController();
+		evaluation = controller;
+		const evaluationSignal = ctx.signal ? AbortSignal.any([ctx.signal, controller.signal]) : controller.signal;
 		try {
-			const result = await evaluateGoal(ctx, evaluationSignal);
+			const result = await evaluateGoal(ctx, event.context.contextMessages, evaluationSignal);
 			if (evaluationSignal?.aborted || state !== evaluatedGoal || state.status !== "active") return;
 			if (result.met) {
 				persist(updateAfterMetEvaluation(state, result), ctx);
@@ -197,12 +201,21 @@ export default function goalExtension(pi: ExtensionAPI): void {
 			const message = error instanceof Error ? error.message : String(error);
 			return { entries: [...event.entries, stopWithReason(`evaluator error: ${message}`, ctx)] };
 		} finally {
-			evaluating = false;
+			if (evaluation === controller) evaluation = undefined;
 		}
 	});
 
+	// Final settlement covers interrupts during requests, tools, evaluation, and startup.
+	// Steering does not abort the run and must preserve its goal.
+	pi.on("agent_settled", (event, ctx) => {
+		if (disabledInOrchestratedChild || !event.aborted || state?.status !== "active") return;
+		persist(clearGoal(state, "run interrupted"), ctx);
+		showStatus(ctx);
+	});
+
 	pi.on("session_shutdown", async () => {
-		evaluating = false;
+		evaluation?.abort();
+		evaluation = undefined;
 	});
 }
 

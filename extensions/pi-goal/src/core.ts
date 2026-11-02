@@ -215,6 +215,7 @@ export function buildEvaluatorSystemPrompt(): string {
 		"Return only minified JSON with this shape:",
 		'{"met":false,"reason":"short reason","continuation":"what the agent should do next"}',
 		"Use met=true only when the transcript clearly demonstrates completion.",
+		"Failed or cancelled operations and aborted/error assistant claims are not completion evidence. Check tool call IDs, arguments and execution outcomes.",
 	].join("\n");
 }
 
@@ -286,13 +287,16 @@ export function messageText(message: SessionMessage): string {
 			return text.startsWith(GOAL_CONTINUATION_PREFIX) ? "" : text;
 		}
 		case "toolResult":
+			return `${contentText(message.content)}\n[tool result: ${JSON.stringify({ toolCallId: message.toolCallId, toolName: message.toolName, isError: message.isError })}]`;
 		case "custom":
+			if ([GOAL_CONTEXT_MESSAGE, GOAL_EVALUATION_MESSAGE, GOAL_STATUS_MESSAGE].includes(message.customType)) return "";
 			return contentText(message.content);
 		case "assistant":
-			return assistantContentText(message.content);
+			if (message.stopReason === "aborted" || message.stopReason === "error") return "";
+			return `${assistantContentText(message.content)}\n[assistant stopReason: ${message.stopReason}]`;
 		case "bashExecution":
 			if (message.excludeFromContext === true) return "";
-			return [`$ ${message.command}`, message.output].filter(Boolean).join("\n");
+			return [`$ ${message.command}`, message.output, `[bash outcome: ${JSON.stringify({ exitCode: message.exitCode ?? null, cancelled: message.cancelled, truncated: message.truncated ?? false })}]`].filter(Boolean).join("\n");
 		case "branchSummary":
 		case "compactionSummary":
 			return message.summary;
@@ -307,7 +311,7 @@ function assistantContentText(content: unknown): string {
 		.map((item) => {
 			if (!isRecord(item)) return "";
 			if (item.type === "text" && typeof item.text === "string") return item.text;
-			if (item.type === "toolCall" && typeof item.name === "string") return `[tool call: ${item.name}]`;
+			if (item.type === "toolCall" && typeof item.name === "string") return `[tool call: ${JSON.stringify({ id: item.id, name: item.name, arguments: item.arguments })}]`;
 			return "";
 		})
 		.filter(Boolean)

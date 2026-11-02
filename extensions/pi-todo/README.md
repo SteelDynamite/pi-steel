@@ -43,16 +43,21 @@ In TUI mode, todos appear automatically in a widget above the editor when the li
 
 Terminal control characters in todo text and titles are displayed as literal `\uXXXX` escapes in this extension's widgets and tool renderers, including when restoring older sessions. Stored todo text/title, tool output, and titles passed to Pi's session naming API remain unchanged; this escaping does not protect Pi's own session-name displays.
 
-At the end of an agent loop, if pending todos appear before later done/failed todos, pi-todo injects a `<system-reminder>` asking the agent to mark/reorder them so remaining pending todos stay at the end.
+Before a successfully completed run settles, if pending todos appear before later done/failed todos, pi-todo appends a `<system-reminder>` asking the agent to mark/reorder them so remaining pending todos stay at the end. At most one reminder continuation is allowed per submitted prompt, even if the list changes. Aborted/error runs and orchestrated children (`PI_ORCHESTRATED_CHILD=1`) never trigger these continuations. This uses Pi 1.4's outcome-aware `agent_before_settle` boundary rather than queued steering.
 
-Todo state, including title, is stored in pi session tool-result details, so it survives reload/resume and follows session branches correctly. On reload/resume/tree navigation, pi-todo restores the title as the Pi session name. The widget auto-hide timer itself is process-local TUI state; after reload/resume/tree navigation, hidden completed lists may be shown again until the timer runs again.
+Successful mutations persist immediately through Pi's `appendEntry()` as branch-local `pi-todo-state` entries. Direct and nested tool access remain available; nested calls do not need standalone transcript results to survive reload/resume. Tool-result details retain display snapshots marked `stateEntry: true`; reconstruction ignores these potentially delayed echoes and reads custom snapshots and older unmarked todo results in branch order. Invalid stored todo items are skipped; later valid snapshots still restore normally. Missing required action fields and nonexistent IDs return failed tool status without changing saved state.
+
+On reload/resume/tree navigation, pi-todo restores the title as the Pi session name. The widget auto-hide timer is process-local presentation state and resets on navigation, giving completed lists a fresh four-turn grace period; title-only widgets remain visible.
 
 ## Development
 
 ```bash
-npm install
+# From the Steel workspace, install root development dependencies first (npm ci).
+# Then run in extensions/pi-todo:
 npm run validate
 ```
+
+Validation includes deterministic Pi 1.4 host tests for direct/nested calls, delayed result ordering, disk reopen, reload/tree restoration, failed status, cancellation, and child suppression. Host tests run in isolated homes with a local provider; they require the workspace's host dependency, not a live account.
 
 ## License
 

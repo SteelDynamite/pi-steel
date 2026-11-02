@@ -74,6 +74,7 @@ export function formatWrongIntentReason(agent: AgentConfig, requested: SessionIn
 export function updateTrackedSession(ctx: ExtensionContext, agent: AgentConfig, sessionId: string | undefined, result: SingleResult): void {
 	if (!agent.resumable) return;
 	if (!subagentSettings.reuseEnabled || !sessionId || isFailedResult(result)) {
+		trackedSessions.delete(sessionRecordKey(ctx, agent.id));
 		result.nextSessionIntent = "new";
 		return;
 	}

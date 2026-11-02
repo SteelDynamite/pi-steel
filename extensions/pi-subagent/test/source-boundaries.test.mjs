@@ -32,7 +32,7 @@ for (const scenario of ["dotdot-name", "invalid-metadata", "bare-new-file"]) {
 			}
 			const cwd = scenario === "bare-new-file" ? owned : root;
 			if (scenario === "bare-new-file") target = "new.txt";
-			assert.equal((await guard()({ toolName: "write", input: { path: target, content: "x" } }, { cwd, hasUI: false }))?.block, true);
+			assert.equal((await guard()({ toolName: "write", input: { path: target, content: "x" } }, { cwd, hasUI: false, isProjectTrusted: () => true }))?.block, true);
 		} finally { rmSync(root, { recursive: true, force: true }); }
 	});
 }
@@ -47,7 +47,7 @@ test("active owners and behavioral exclusions survive invalid metadata", async (
 		assert.equal(isBehavioralDefinitionPath(behavioral, [join(root, ".agents", "subagents")]), true);
 		assert.deepEqual(scanLocationalAgents(root).roots, []);
 		const check = guard();
-		const ctx = { cwd: root, hasUI: false };
+		const ctx = { cwd: root, hasUI: false, isProjectTrusted: () => true };
 		const event = { toolName: "write", input: { path: join(behavioral, "missing", "..notes") } };
 		assert.equal(await check(event, ctx), undefined);
 		writeFileSync(join(root, "SUBAGENTS.md"), "Real owner\n");

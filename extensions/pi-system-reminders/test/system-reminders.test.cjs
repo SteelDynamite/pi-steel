@@ -7,6 +7,8 @@ const { createJiti } = require('jiti');
 
 const jiti = createJiti(__filename);
 const mod = jiti('../index.ts');
+// Exercise parent behavior independently of the invoking harness.
+delete process.env.PI_ORCHESTRATED_CHILD;
 
 function tempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'pi-system-reminders-'));

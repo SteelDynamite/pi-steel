@@ -38,16 +38,18 @@ pi -e ./dist/index.js
 
 ## Behavior
 
-- Successful `read` calls record a SHA-256 fingerprint of the full file on disk.
+- Successful `read` calls record a SHA-256 fingerprint of the exact full-file buffer consumed by Pi. Partial, truncated, and image reads retain Pi's output semantics; they authorize the full source file, not just visible lines/pixels.
 - `edit` is blocked unless the file was read in the current Pi session and is unchanged.
 - `write` to an existing file is blocked unless the file was read in the current Pi session and is unchanged.
 - `write` to a new file is allowed.
 - If a previously read file is deleted before `edit` or `write`, the operation is blocked.
-- Successful `edit`/`write` calls refresh the recorded fingerprint.
-- Fingerprints are held in a bounded LRU cache: 100 files or 1MB of fingerprint metadata, whichever is hit first.
-- Fingerprints and aliases are isolated per extension instance and cleared on every `session_start`, including new, resumed, forked, and reloaded sessions. Re-read files afterward.
-- Filesystem inspection errors during mutation preflight fail the tool call instead of treating an unread existing file as new.
-- Paths are resolved against Pi's current working directory, normalize Unicode spaces, strip a leading `@`, expand `~`, support `file://` URLs, and use `realpath()` when possible so symlink aliases share one fingerprint.
+- Successful `edit`/`write` calls authorize the bytes Pi supplied to the filesystem, never a later independent disk snapshot. An edit also checks that its source bytes remain current, even if a concurrent read authorized another version.
+- Failed/aborted mutations revoke authorization before filesystem I/O while retaining deletion history. Failed reads do not erase prior history.
+- A bounded LRU holds at most 100 file records, 100 aliases, and 1 MiB of estimated string metadata, including unauthorized/deletion records. Any limit evicts entire records and their aliases.
+- State is isolated per extension instance and cleared on `session_start`, `session_tree`, `session_compact`, and `session_shutdown`. Re-read after navigation, compaction, reload, or session replacement. In-flight operations cannot populate replacement state.
+- Filesystem inspection errors fail the tool instead of treating an unread existing file as new.
+- Pi resolves tool paths itself, including Unicode spaces, leading `@`, `~`, file URLs, Windows shell-drive paths, and read-only filename fallbacks. The guard receives that actual resolved path; writes do not inherit read-only filename fallback behavior.
+- Symlink aliases share canonical identity. Missing paths resolve through existing parent directories and dangling links, preserving retained deletion history through previously unseen aliases.
 
 ## Block messages
 
@@ -71,14 +73,12 @@ Blocked stale write: file was deleted since the last read: path/to/file.ts
 
 ## Limitations
 
-1. It does not block file mutations through `bash`, external scripts, or other custom tools.
-2. Protection is best-effort, not atomic. The preflight-to-mutation race remains. Separately, result-time hashing after `read`, `edit`, or `write` can trust external changes that the agent never saw. There is no pre/post-read certification or proof that mutation output matches the recorded bytes.
-3. Fingerprints are in memory and are lost on restart or session start; re-read files before editing. Within-session tree navigation does not reset them.
-4. Multiple Pi processes do not share fingerprint state.
-5. Large files are hashed in full.
-6. Fingerprints can be evicted from the bounded LRU cache; evicted existing files must be read again before editing. Auxiliary alias metadata is not bounded. Eviction, failed fingerprint refreshes, and unresolved symlink aliases can lose deletion history and permit recreation.
-7. Windows shell-style drive paths (`/c/...`, `/mnt/c/...`, `/cygdrive/c/...`) can resolve differently from Pi and bypass the intended target check. Use native Windows paths instead.
-8. Pi's alternative-filename read fallbacks may succeed without recording a fingerprint; custom/remote read implementations are not validated.
+1. This is an accidental-clobber guard, not an adversarial filesystem sandbox. It does not protect `bash`, external scripts, other processes, or custom/remote tools. Another extension replacing `read`, `edit`, or `write` can supersede these wrappers; do not combine competing replacements.
+2. Filesystem path resolution, hashing, and writes are not atomic. Changes or symlink swaps between inspection and I/O, including an ABA swap, remain possible. Capturing operation buffers closes independent post-result certification races; it does not prove which inode supplied/received bytes during every concurrent filesystem change.
+3. A successful full-file operation establishes a version, not proof that the model saw every byte. Partial/truncated reads, image processing, and other extensions' result transformations may hide content. This preserves the existing whole-file authorization policy.
+4. State is process-local, nonpersistent, and bounded. Eviction/reset loses deletion history; an evicted missing path is treated as new. Existing evicted files require rereading. Metadata accounting estimates strings, not total JavaScript heap usage; active calls also hold local state.
+5. Large files are read and hashed in full without a per-file byte cap. Concurrent operations can fail conservatively and require rereading.
+6. The wrappers reuse Pi 1.4's exported tool definitions, schemas, rendering, edit algorithm, image processing, and mutation queues. Host updates require revalidation. Native Windows/macOS behavior and interactive rendering have not been tested here. Custom host read options are not inherited; definition defaults and per-call model image limits apply.
 
 ## Development
 
@@ -91,9 +91,11 @@ npm run audit:release
 npm run build
 ```
 
-The package has no runtime npm dependencies; it uses Pi's extension API structurally and keeps its file-mutation queues locally. Queue cleanup handles rejected operations without changing queue keys or serialization. Regression tests cover session isolation/reset, in-flight result ownership, filesystem failures, queue cleanup/rejection recovery, and same-file serialization.
+Run from this module after the collection's root dependencies and this module's development dependencies are installed. Pi 1.4 supplies `@earendil-works/pi-coding-agent` at runtime; it is external, not bundled. No additional runtime package is installed by this module.
 
-The implementation lives in `src/index.ts`. The original design notes are in [docs/PLAN.md](docs/PLAN.md).
+`npm test` compiles `src/index.ts`, exercises actual exported host tools, and launches a fresh Pi CLI with a deterministic local provider, denied network access, and temporary HOME/PI_CODING_AGENT_DIR. Regressions cover read/mutation replacement races, edit source freshness, own-mutation chaining, partial/image reads, filename fallbacks, aliases/deletion, failures/abort, lifecycle invalidation, and bounded metadata. `test:pack` imports and invokes every declared extension entry with the host external supplied explicitly.
+
+The unshipped `docs/PLAN.md` is historical design material, not a current ordering or test-coverage contract.
 
 ## License
 

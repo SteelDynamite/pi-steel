@@ -5,6 +5,13 @@ import { __test__ } from "../src/index.ts";
 const { sanitizeSuggestion } = __test__;
 
 describe("sanitizeSuggestion", () => {
+	it("rejects terminal commands and embedded controls while retaining edge whitespace and Unicode", () => {
+		for (const control of ["\u001b]52;c;cGF5bG9hZA==\u0007", "\u009d52;c;payload\u009c", "\r", "\t", "\u0000", "\u2028", "\u2029"]) {
+			assert.equal(sanitizeSuggestion(`run ${control}the tests`), undefined);
+		}
+		assert.equal(sanitizeSuggestion("\n\t运行 测试\r\n"), "运行 测试");
+	});
+
 	it("accepts short imperative suggestions", () => {
 		assert.equal(sanitizeSuggestion("run the tests"), "run the tests");
 		assert.equal(sanitizeSuggestion("count to 20"), "count to 20");

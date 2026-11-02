@@ -7,6 +7,14 @@ const { renderGhostSuggestionLines } = __test__;
 const cursor = "\x1b[7m \x1b[0m";
 
 describe("ghost suggestion rendering", () => {
+	it("retains focused cursor metadata and padding; refuses untrusted controls", () => {
+		const prefix = `  \x1b_pi:c\x07${cursor}`;
+		const lines = ["border", prefix + " ".repeat(10), "border"];
+		const result = renderGhostSuggestionLines(lines, 20, "run the tests");
+		assert.ok(result[1].startsWith(prefix));
+		assert.equal(renderGhostSuggestionLines(lines, 20, "run \x1b]52;c;bad\x07tests"), lines);
+	});
+
 	it("renders dim ghost text on the editor content line", () => {
 		const lines = ["─".repeat(20), `${cursor}${" ".repeat(19)}`, "─".repeat(20)];
 		const rendered = renderGhostSuggestionLines(lines, 20, "run the tests");

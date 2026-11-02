@@ -4,6 +4,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { getPackageDir } from "@earendil-works/pi-coding-agent";
 
 const execFileAsync = promisify(execFile);
 const projectRoot = path.resolve(import.meta.dirname, "..");
@@ -36,12 +37,28 @@ try {
 	await runNpm(["init", "-y"], { cwd: tempDir });
 	await runNpm(["install", "--omit=dev", tarball], { cwd: tempDir });
 
+	// Pi supplies this external at runtime. Do not install/bundle a second host.
+	await fs.mkdir(path.join(tempDir, "node_modules/@earendil-works"), { recursive: true });
+	await fs.symlink(getPackageDir(), path.join(tempDir, "node_modules/@earendil-works/pi-coding-agent"), "dir");
 	const importCheck = await execFileAsync(
 		"node",
 		[
 			"--input-type=module",
 			"-e",
-			"const pkg = await import('pi-read-before-write'); if (typeof pkg.default !== 'function') throw new Error('missing default export'); if (typeof pkg.resolveTrackedPath !== 'function') throw new Error('missing resolveTrackedPath export');",
+			`const pkg = await import('pi-read-before-write');
+			if (typeof pkg.default !== 'function') throw new Error('missing default export');
+			if (typeof pkg.resolveTrackedPath !== 'function') throw new Error('missing resolveTrackedPath export');
+			const { readFile } = await import('node:fs/promises');
+			const { resolve } = await import('node:path');
+			const { pathToFileURL } = await import('node:url');
+			const root = resolve('node_modules/pi-read-before-write');
+			const manifest = JSON.parse(await readFile(root + '/package.json', 'utf8'));
+			for (const entry of manifest.pi.extensions) {
+				const tools = new Set(), events = new Set();
+				const extension = await import(pathToFileURL(resolve(root, entry)).href);
+				await extension.default({ on: name => events.add(name), registerTool: tool => tools.add(tool.name) });
+				if (tools.size !== 3 || !events.has('session_tree')) throw new Error('broken declared extension entry');
+			}`,
 		],
 		{ cwd: tempDir, maxBuffer: 1024 * 1024 * 10 },
 	);

@@ -15,6 +15,9 @@ import {
 } from "./locational-manifest.ts";
 import {
 	commandFilesystemTargets,
+	canonicalPath,
+	containingLocationalRoot,
+	resolveBuiltinTarget,
 	getGuardedLocationalRoots,
 	notifyLocationalBoundaryDiscovered,
 	resolveFilesystemTarget,
@@ -136,15 +139,16 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("tool_call", async (event, ctx) => {
-		if (event.toolName === "subagent") return;
+		if (event.toolName === "subagent" || !locationalAgentsEnabled() || !ctx.isProjectTrusted()) return;
 		const roots = getGuardedLocationalRoots(ctx.cwd);
-		if (!roots.length) return;
 		const input = (event.input ?? {}) as Record<string, unknown>;
 		const candidates: string[] = [];
 		for (const key of ["path", "file_path", "filePath", "cwd", "dir", "directory", "root", "rootDir"]) {
 			const value = input[key];
 			if (typeof value !== "string") continue;
-			const target = resolveFilesystemTarget(ctx.cwd, value, { allowBare: true });
+			const target = ["read", "write", "edit", "grep", "find", "ls"].includes(event.toolName)
+				? resolveBuiltinTarget(ctx.cwd, value, event.toolName === "read")
+				: resolveFilesystemTarget(ctx.cwd, value, { allowBare: true });
 			if (target) candidates.push(target);
 		}
 		if (event.toolName === "bash") {
@@ -154,8 +158,12 @@ export default function (pi: ExtensionAPI) {
 			candidates.push(bashCwd);
 			if (typeof input.command === "string") candidates.push(...commandFilesystemTargets(input.command, bashCwd));
 		}
+		const recursive = event.toolName === "grep" || event.toolName === "find";
+		if (recursive && !candidates.length) candidates.push(resolveBuiltinTarget(ctx.cwd, "."));
 		for (const candidate of candidates) {
-			const root = roots.find((item) => isPathInside(candidate, item));
+			const containing = containingLocationalRoot(candidate, ctx.cwd);
+			const root = roots.find((item) => isPathInside(candidate, item) || (recursive && isPathInside(item, candidate)))
+				?? (containing && containing !== (process.env[CURRENT_LOCATIONAL_ROOT_ENV] ? canonicalPath(process.env[CURRENT_LOCATIONAL_ROOT_ENV]!) : undefined) ? containing : undefined);
 			if (!root) continue;
 			notifyLocationalBoundaryDiscovered(ctx, root);
 			return { block: true, reason: `Locational boundary enforced: delegate with subagent using locational agent id "${root}" instead of accessing it directly.` };
@@ -213,10 +221,11 @@ export default function (pi: ExtensionAPI) {
 				return {
 					content: [{ type: "text", text: `Subagent ${result.stopReason || "failed"}: ${getResultOutput(result)}` }],
 					details: makeDetails([result]),
+					usage: result.nativeUsage,
 					isError: true,
 				};
 			}
-			return { content: [{ type: "text", text: getResultOutput(result) }], details: makeDetails([result]) };
+			return { content: [{ type: "text", text: getResultOutput(result) }], details: makeDetails([result]), usage: result.nativeUsage };
 		},
 		renderCall: renderSubagentCall,
 		renderResult: renderSubagentResult,

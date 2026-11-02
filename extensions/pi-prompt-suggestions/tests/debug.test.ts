@@ -69,8 +69,10 @@ for (const enabled of [false, true]) {
 		promptSuggestions({ on: (name, handler) => { handlers.set(name, handler); } });
 		await handlers.get("session_start")!({} as never, ctx);
 		await handlers.get("agent_end")!({ messages: [] } as never, ctx);
+		await new Promise((resolve) => setImmediate(resolve));
 		ctx.modelRegistry.getApiKeyAndHeaders = async () => { throw new Error(error); };
 		await handlers.get("agent_end")!({ messages: [] } as never, ctx);
+		await new Promise((resolve) => setImmediate(resolve));
 		await handlers.get("session_shutdown")!({} as never, ctx);
 		const logPath = join(cwd, "next-suggestion-debug.log");
 		if (!enabled) {

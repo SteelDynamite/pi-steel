@@ -83,6 +83,20 @@ describe("todo actions", () => {
 });
 
 describe("branch reconstruction", () => {
+	it("restores mixed custom and legacy snapshots in chronological branch order", () => {
+		const first = { todos: [{ id: 1, text: "custom", state: "done" }], nextId: 2 };
+		const later = { todos: [{ id: 1, text: "legacy later", done: false }], nextId: 2 };
+		const custom = { type: "custom", customType: "pi-todo-state", data: first };
+		assert.equal(reconstructTodoModelFromBranch([custom, toolEntry(later)]).todos[0]?.text, "legacy later");
+		assert.equal(reconstructTodoModelFromBranch([toolEntry(later), custom]).todos[0]?.text, "custom");
+	});
+
+	it("ignores malformed stored items and keeps reading later valid snapshots", () => {
+		const malformed = toolEntry({ todos: [null, undefined, false, 12, "text", {}, { id: 1, text: "valid", done: true }] });
+		assert.deepEqual(reconstructTodoModelFromBranch([malformed]).todos, [{ id: 1, text: "valid", state: "done" }]);
+		assert.deepEqual(reconstructTodoModelFromBranch([malformed, toolEntry({ todos: [], nextId: 1 })]), createTodoModel());
+	});
+
 	it("uses the latest todo tool result on the active branch", () => {
 		const first: TodoDetails = {
 			action: "add",

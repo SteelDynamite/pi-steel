@@ -78,7 +78,7 @@ export interface LoadedReminder {
 export interface ReminderDiagnostic {
 	name: string;
 	path?: string;
-	phase: "load" | "validate" | "when" | "message";
+	phase: "discover" | "load" | "validate" | "when" | "message";
 	message: string;
 	count?: number;
 }
@@ -92,7 +92,7 @@ export interface ReminderLoadResult {
 
 // Intentional: reminders are executable TypeScript modules, like pi extensions.
 // This is a trust boundary, not a sandbox; docs warn users to review reminder files.
-export function discoverReminderFiles(cwd: string, includeProject = true): { path: string; name: string }[] {
+export function discoverReminderFiles(cwd: string, includeProject = true, diagnostics: ReminderDiagnostic[] = []): { path: string; name: string }[] {
 	const agentDir = process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), ".pi", "agent");
 	const dirs = [path.join(agentDir, "reminders")];
 	if (includeProject) dirs.push(path.join(cwd, ".pi", "reminders"));
@@ -100,10 +100,19 @@ export function discoverReminderFiles(cwd: string, includeProject = true): { pat
 	const results: { path: string; name: string }[] = [];
 
 	for (const dir of dirs) {
-		if (!fs.existsSync(dir)) continue;
-		if (!fs.statSync(dir).isDirectory()) continue;
-
-		const entries = fs.readdirSync(dir, { withFileTypes: true });
+		let entries: fs.Dirent[];
+		let directoryFound = false;
+		try {
+			if (!fs.statSync(dir).isDirectory()) continue;
+			directoryFound = true;
+			entries = fs.readdirSync(dir, { withFileTypes: true });
+		} catch (err: unknown) {
+			// An absent scope is normal; disappearing after stat is a discovery failure.
+			if (directoryFound || (err as NodeJS.ErrnoException).code !== "ENOENT") {
+				addDiagnostic(diagnostics, { name: dir, path: dir, phase: "discover", message: errorMessage(err) });
+			}
+			continue;
+		}
 		for (const entry of entries) {
 			const fullPath = path.join(dir, entry.name);
 
@@ -114,8 +123,12 @@ export function discoverReminderFiles(cwd: string, includeProject = true): { pat
 				});
 			} else if (entry.isDirectory()) {
 				const indexPath = path.join(fullPath, "index.ts");
-				if (fs.existsSync(indexPath)) {
-					results.push({ path: indexPath, name: entry.name });
+				try {
+					if (fs.statSync(indexPath).isFile()) results.push({ path: indexPath, name: entry.name });
+				} catch (err: unknown) {
+					if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+						addDiagnostic(diagnostics, { name: entry.name, path: indexPath, phase: "discover", message: errorMessage(err) });
+					}
 				}
 			}
 		}
@@ -177,7 +190,7 @@ function validateReminder(name: string, filePath: string, reminder: any): Remind
 export async function loadReminders(pi: ExtensionAPI, cwd: string, includeProject = true): Promise<ReminderLoadResult> {
 	const reminders: LoadedReminder[] = [];
 	const diagnostics: ReminderDiagnostic[] = [];
-	const files = discoverReminderFiles(cwd, includeProject);
+	const files = discoverReminderFiles(cwd, includeProject, diagnostics);
 
 	for (const file of files) {
 		try {
@@ -260,6 +273,7 @@ export async function evaluate(
 	ctx: ExtensionContext,
 	pi: ExtensionAPI,
 ) {
+	if (process.env.PI_ORCHESTRATED_CHILD === "1") return;
 	const eventReminders = reminders.filter((loaded) => loaded.events.has(event));
 	if (eventReminders.length === 0) return;
 
@@ -294,6 +308,9 @@ export async function evaluate(
 		}
 
 		if (!shouldFire) continue;
+		// Parallel tool hooks can commit while this predicate awaits.
+		if (loaded.reminder.once && loaded.fired) continue;
+		if (loaded.evalCount - loaded.lastFiredAt <= cooldown) continue;
 
 		let message: string;
 		try {
@@ -344,6 +361,9 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.notify(`System reminders:\n${loadedLines}${diagnosticLines}`, diagnostics.length > 0 ? "warning" : "info");
 		},
 	});
+
+	// Do not execute factories: their own hooks can also start automatic work.
+	if (process.env.PI_ORCHESTRATED_CHILD === "1") return;
 
 	pi.on("session_start", async (_event, ctx) => {
 		// Older Pi hosts have no project-trust API; retain their discovery behavior.

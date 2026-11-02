@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { buildSessionContext } from "@earendil-works/pi-coding-agent";
 import { createRecapExtension } from "../index.ts";
 import {
 	automaticRecapEligible,
@@ -86,14 +87,15 @@ function harness(entries: any[], extension = createRecapExtension()) {
 		model: { provider: "test", id: "recap-model" },
 		modelRegistry: {
 			hasConfiguredAuth: () => true,
-			complete: async () => ({
+			streamSimple: () => ({ result: async () => ({
 				content: [{ type: "text", text: "Implemented recap persistence. Run validation." }],
 				usage: { cost: { total: 0.0012 } },
 				stopReason: "stop",
-			}),
+			}) }),
 		},
 		sessionManager: {
 			getBranch: () => entries,
+			buildSessionContext: () => buildSessionContext(entries),
 			getLeafId: () => entries.at(-1)?.id ?? null,
 		},
 		isIdle: () => true,
@@ -150,7 +152,7 @@ test("automatic eligibility survives resume through custom recap entries", () =>
 		data: { version: 1, completedTurns: 3 },
 	});
 	assert.equal(automaticRecapEligible(entries), false);
-	entries.push(...conversation(2).map((entry, index) => ({ ...entry, id: `later-${index}` })));
+	entries.push(...conversation(2).map((entry, index) => ({ ...entry, id: `later-${index}`, parentId: index === 0 ? "recap" : `later-${index - 1}` })));
 	assert.equal(recapProgress(entries).completedTurns, 5);
 	assert.equal(automaticRecapEligible(entries), true);
 });
@@ -178,10 +180,17 @@ test("manual recap appends a display-only custom entry and renders persisted dat
 });
 
 test("settled sessions generate automatically after the configured delay", async () => {
+	const child = process.env.PI_ORCHESTRATED_CHILD;
+	delete process.env.PI_ORCHESTRATED_CHILD;
 	const h = harness(conversation(3), createRecapExtension({ idleDelayMs: 5, requestTimeoutMs: 1_000 }));
-	h.handlers.get("agent_settled")!({}, h.ctx);
-	await new Promise((resolve) => setTimeout(resolve, 30));
-	assert.equal(h.appended.length, 1);
-	assert.equal(h.appended[0].data.trigger, "automatic");
-	h.handlers.get("session_shutdown")!({}, h.ctx);
+	try {
+		h.handlers.get("agent_settled")!({}, h.ctx);
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		assert.equal(h.appended.length, 1);
+		assert.equal(h.appended[0].data.trigger, "automatic");
+	} finally {
+		h.handlers.get("session_shutdown")!({}, h.ctx);
+		if (child === undefined) delete process.env.PI_ORCHESTRATED_CHILD;
+		else process.env.PI_ORCHESTRATED_CHILD = child;
+	}
 });

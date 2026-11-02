@@ -31,8 +31,8 @@ test("real TUI: all 13 modules, local model, footer/editor/widgets, minimal → 
     for (const path of [agentDir, cwd, manual, join(agentDir, "extensions")]) mkdirSync(path, { recursive: true });
     copyFileSync(join(here, "fixtures/tui-runtime.mjs"), join(manual, "index.mjs"));
     writeFileSync(join(manual, "package.json"), JSON.stringify({ name: "steel-tui-manual", version: "1.0.0", pi: { extensions: ["index.mjs"] } }));
-    // Disable only auxiliary model requests, not the real suggestion editor.
-    writeFileSync(join(agentDir, "extensions/prompt-suggestions.json"), JSON.stringify({ enabled: false }));
+    // Exercise the real enabled editor with a separate deterministic auxiliary model.
+    writeFileSync(join(agentDir, "extensions/prompt-suggestions.json"), JSON.stringify({ enabled: true, model: "steel-tui-local/suggestion" }));
     mkdirSync(join(home, ".pi/agent"), { recursive: true });
     writeFileSync(join(home, ".pi/agent/mindful.json"), JSON.stringify({ delaySeconds: 0, style: "wave" }));
     writeFileSync(join(agentDir, "auth.json"), "{}");
@@ -81,6 +81,7 @@ test("real TUI: all 13 modules, local model, footer/editor/widgets, minimal → 
     await wait("one model run settled", () => events().some(event => event.event === "settled"));
     await wait("todo widget rendered", () => events().some(event => event.event === "render" && event.owner === "todo"));
     await wait("rendered model response", () => plain(transcript).includes("TUI_LOCAL_COMPLETE"));
+    await wait("local suggestion request", () => events().some(event => event.event === "suggestion-request"));
     assert.match(plain(transcript), /Breathe in/);
     for (const member of members) assert(plain(transcript).includes(`/extensions/${member.id}`), `${member.id} loaded in the real TUI`);
     assert(events().some(event => event.event === "widget" && event.owner === "pi-mindful"), "mindful working widget must be displayed");

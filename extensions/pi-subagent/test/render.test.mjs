@@ -59,6 +59,14 @@ test("compact result shows default thinking without inferring it", () => {
 	assert.match(text, /\(no output\)/);
 });
 
+test("stderr-only historical errors are visible and bounded in both card modes", () => {
+	for (const expanded of [false, true]) {
+		const text = compact(result({ exitCode: 1, stderr: "launch failed " + "x".repeat(10000) }), { expanded });
+		assert.match(text, /Error: launch failed/);
+		assert.ok(text.length < 4000);
+	}
+});
+
 test("completed and failed compact results preserve useful output", () => {
 	const complete = compact(result({ exitCode: 0, messages: [{ role: "assistant", content: [{ type: "text", text: "Audit complete" }] }] }));
 	assert.match(complete, /✓ completed · openai\/gpt-5\.6-luna · high/);

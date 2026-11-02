@@ -1,4 +1,6 @@
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { buildSessionContext, type SessionContext, type SessionEntry } from "@earendil-works/pi-coding-agent";
+
+type Messages = SessionContext["messages"];
 
 export const CUSTOM_TYPE = "pi-recap";
 export const IDLE_DELAY_MS = 30 * 60 * 1_000;
@@ -46,14 +48,14 @@ function messageText(content: unknown): string {
 		.trim();
 }
 
-export function conversationExchanges(entries: readonly SessionEntry[]): Exchange[] {
+export function conversationExchanges(entries: readonly SessionEntry[], messages: Messages = buildSessionContext([...entries]).messages): Exchange[] {
 	const exchanges: Exchange[] = [];
 	let current: Exchange | undefined;
 
-	for (const entry of entries) {
-		if (entry.type !== "message") continue;
-		const { message } = entry;
+	for (const message of messages) {
 		if (message.role !== "user" && message.role !== "assistant") continue;
+		// Tool-use preambles and interrupted output are not completed work.
+		if (message.role === "assistant" && message.stopReason !== "stop") continue;
 		const text = messageText(message.content);
 		if (!text) continue;
 
@@ -122,8 +124,8 @@ function renderExchange(exchange: Exchange): string {
 	return exchangeFields(exchange).map(([label, text]) => `${label}: ${text}`).join("\n\n");
 }
 
-export function buildRecapHistory(entries: readonly SessionEntry[]): string {
-	const all = conversationExchanges(entries);
+export function buildRecapHistory(entries: readonly SessionEntry[], messages?: Messages): string {
+	const all = conversationExchanges(entries, messages);
 	const answered = all.filter((exchange) => exchange.assistant).slice(-MAX_HISTORY_TURNS);
 	const pending = all.at(-1)?.assistant ? [] : all.slice(-1);
 	let selected = [...answered, ...pending];
@@ -157,8 +159,8 @@ export function buildRecapHistory(entries: readonly SessionEntry[]): string {
 	return `${omission}${excerpts.join("\n\n")}`;
 }
 
-export function buildRecapPrompt(entries: readonly SessionEntry[]): string {
-	const history = buildRecapHistory(entries);
+export function buildRecapPrompt(entries: readonly SessionEntry[], messages?: Messages): string {
+	const history = buildRecapHistory(entries, messages);
 	return history ? `${PROMPT_PREFIX}${history}` : "";
 }
 
@@ -182,12 +184,15 @@ export function recapProgress(entries: readonly SessionEntry[]): {
 				lastRecappedTurnCount = data.completedTurns;
 			}
 		}
-		if (entry.type === "message" && entry.message.role === "assistant") {
-			lastAssistantAt = entry.message.timestamp;
-		}
+	}
+	// Progress is branch-lifetime metadata, not recap input. Keep its baseline
+	// stable across compaction; only prompt construction uses effective context.
+	const messages = entries.flatMap((entry) => entry.type === "message" ? [entry.message] : []);
+	for (const message of messages) {
+		if (message.role === "assistant" && message.stopReason === "stop") lastAssistantAt = message.timestamp;
 	}
 	return {
-		completedTurns: conversationExchanges(entries).filter((exchange) => exchange.assistant).length,
+		completedTurns: conversationExchanges(entries, messages).filter((exchange) => exchange.assistant).length,
 		lastRecappedTurnCount,
 		lastAssistantAt,
 	};

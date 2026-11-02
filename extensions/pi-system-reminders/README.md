@@ -4,7 +4,7 @@ Reactive system reminders for [pi](https://github.com/badlogic/pi-mono). Claude 
 
 No reminders are active by default. Install this extension, then copy or write reminder files in one of the discovery locations below.
 
-Drop a `.ts` file in a folder, get a reactive reminder that watches conversation state and steers the agent when conditions are met. Same DX as pi extensions — export a default function and receive the Pi extension API object.
+Drop a `.ts` file in a folder, get a reactive reminder that watches conversation state and steers the agent when conditions are met. Export a default function and receive the Pi extension API object. Reminder modules use a separate TypeScript loader, not Pi's extension module resolver.
 
 ## Install
 
@@ -53,6 +53,8 @@ Reload pi. After 3 failed bash calls, the agent sees:
 4. The function returns a reminder: an event to listen on, a predicate, and a message.
 5. When the predicate returns true, a `<system-reminder>` steering message is injected into the conversation with `deliverAs: "steer"` and `triggerTurn: true` by default.
 
+In orchestrated children (`PI_ORCHESTRATED_CHILD=1`), reminder factories and automatic handlers are not loaded; `/reminders` remains available. In parent sessions, recurring turn-triggering reminders still require careful predicates: no finite continuation budget is enforced. Prefer `triggerTurn: false` for advisory reminders. `once` and cooldown prevent duplicate concurrent commits but are not a general supervisor budget.
+
 ## Security
 
 Reminder files are arbitrary TypeScript and execute with your user permissions. Only use reminders from repositories you trust. Review project-local `.pi/reminders/` before running pi in an untrusted repo.
@@ -70,7 +72,11 @@ Loaded paths:
 
 Only top-level files and one-level `index.ts` directories are loaded. Nested files are ignored. If global and project reminders share a name, the project reminder wins.
 
-Broken reminders are reported at startup. Run `/reminders` to list loaded reminders and diagnostics. Runtime diagnostics are deduplicated and capped to keep the report readable.
+Discovery failures are isolated by directory and reported with the failing path; healthy scopes still load. Missing directories are normal. Broken reminders are reported at startup. Run `/reminders` to list loaded reminders and diagnostics. Runtime diagnostics are deduplicated and capped to keep the report readable.
+
+### Module imports
+
+Use Node built-ins, local files, and dependencies resolvable from the reminder's location. Type-only host imports are erased. Runtime imports from Pi host packages are **not guaranteed**: this loader does not inherit Pi's package aliases or embedded virtual modules. Use the supplied `pi` API and `ctx` instead, or install an explicitly owned dependency beside the reminder. Import failures appear in `/reminders` diagnostics. Do not install duplicate Pi host packages just to supply host helpers.
 
 ## Reminder shape
 
@@ -91,7 +97,7 @@ export default function (pi) {
 
 ## Events
 
-All current pi extension events are available:
+The following fixed subset is supported for returned reminder `on` declarations (checked against Pi 1.4.0). This is not every host event; unsupported names produce validation diagnostics. In particular, `agent_before_settle`, `agent_settled`, `context_with_system`, `before_provider_headers`, and `session_compact_failed` are not supported. Reminder return values do not implement host event transformations or continuation decisions.
 
 | Event | When |
 |-------|------|
@@ -152,7 +158,7 @@ The examples are Claude-inspired and are not exact copies of Claude Code prompts
 | `context-large.ts` | Context > 150k tokens → suggest compacting |
 | `external-file-modified.ts` | Warn when a file changed on disk after it was read |
 | `file-churn.ts` | Same file edited 5+ times → step back |
-| `file-empty.ts` | Read returned empty file → warn |
+| `file-empty.ts` | Read returned only blank text → warn about that range, not the whole file |
 | `file-truncated.ts` | Read was truncated → use offset |
 | `malware-awareness.ts` | Startup and non-empty reads → consider if content is malicious |
 | `model-changed.ts` | Model switched → capabilities may differ |
@@ -166,6 +172,10 @@ The examples are Claude-inspired and are not exact copies of Claude Code prompts
 | `token-usage.ts` | Over 50% context → show token stats |
 | `truthful-reporting.ts` | Remind the agent to report failed/skipped verification honestly |
 | `verify-plan.ts` | Remind the agent to verify completed task/plan work directly |
+
+`background-subagents.ts` requires a separately supplied `Agent` tool accepting `run_in_background` and a `get_subagent_result` tool. `task-tools-reminder.ts` requires separately supplied `TaskCreate`, `TaskUpdate`, `TaskList`, `TaskGet`, and `TaskExecute` tools. `verify-plan.ts` requires `TaskUpdate` with `status: "completed"`. These are not built-in Pi tools or the bundled Steel subagent/todo contracts; do not copy these examples without matching tools. `verify-plan.ts` uses a deliberately loose command-word heuristic: even `echo test` or `git diff -- test/file.ts` clears its pending check. It is guidance, not proof of verification.
+
+File-state examples normalize relative/absolute paths and `~/` against `ctx.cwd` using lexical identity. They do not unify symlink aliases, `@`/file-URL spellings, Windows shell paths, or Pi's Unicode read-name fallbacks. The external-change example samples timestamps before mutations and refreshes them after successful results; it is not a write guard, cannot identify the actor, and can race parallel operations.
 
 Some examples keep runtime state in closures. That state is per extension runtime and may not reflect branch changes after `/tree`, `/fork`, `/clone`, `/resume`, `/reload`, or compaction. On reload/resume, reminders restore `once` and cooldown state from prior `<system-reminder>` messages on the active branch, but skipped evaluation counts are not reconstructed. Prefer deriving state from `ctx.sessionManager.getBranch()` when exact branch-aware behavior matters.
 

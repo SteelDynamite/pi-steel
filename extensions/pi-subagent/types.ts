@@ -1,5 +1,5 @@
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
-import type { Message } from "@earendil-works/pi-ai";
+import type { Message, Usage } from "@earendil-works/pi-ai";
 import type { AgentOrigin, ThinkingLevel } from "./agents.ts";
 
 export type SessionIntent = "new" | "resume";
@@ -67,6 +67,8 @@ export interface SingleResult {
 	stderr: string;
 	stdout?: string;
 	usage: UsageStats;
+	/** Child assistant and tool-result usage, including descendant calls and failed attempts. */
+	nativeUsage?: Usage & { reasoning?: number; cacheWrite1h?: number };
 	model?: string;
 	contextWindow?: number;
 	warning?: string;

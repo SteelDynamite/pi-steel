@@ -18,9 +18,11 @@ function createHarness(child = false) {
 		signal: new AbortController().signal,
 		hasPendingMessages: () => false,
 		modelRegistry: {
-			async complete() {
-				calls.completions++;
-				return { content: [{ type: "text", text: '{"met":false,"reason":"missing proof"}' }], stopReason: "stop" };
+			streamSimple() {
+				return { result: async () => {
+					calls.completions++;
+					return { content: [{ type: "text", text: '{"met":false,"reason":"missing proof"}' }], stopReason: "stop" };
+				} };
 			},
 		},
 		sessionManager: {
@@ -51,7 +53,7 @@ function createHarness(child = false) {
 	};
 }
 
-const completedTurn = { outcome: "completed", message: { role: "assistant", stopReason: "stop" }, entries: [] };
+const completedTurn = { outcome: "completed", message: { role: "assistant", stopReason: "stop" }, entries: [], context: { contextMessages: [] } };
 
 test("tree navigation drops an abandoned goal before unrelated work", async () => {
 	const h = createHarness();
@@ -126,6 +128,39 @@ test("resume and tree restoration fail closed on malformed or exhausted newest s
 	}
 });
 
+test("interrupt clears and persists the active goal without starting more work", async () => {
+	const h = createHarness();
+	await h.goal("finish work");
+	const dispatches = h.calls.userMessages.length;
+	await h.emit("agent_settled", { aborted: true });
+	assert.equal(latestGoalState(h.calls.entries)?.status, "cleared");
+	assert.equal(latestGoalState(h.calls.entries)?.stopReason, "run interrupted");
+	assert.equal(h.calls.status, undefined);
+	assert.equal(h.calls.userMessages.length, dispatches);
+	assert.equal(h.calls.completions, 0);
+	const count = h.calls.entries.length;
+	await h.emit("agent_settled", { aborted: true });
+	assert.equal(h.calls.entries.length, count, "repeated settlement does not duplicate clear");
+	for (const event of ["session_start", "session_tree"]) {
+		await h.emit(event);
+		assert.equal(await h.emit("before_agent_start"), undefined);
+		assert.equal(await h.emit("turn_end", completedTurn), undefined);
+	}
+});
+
+test("ordinary settlement does not clear the goal; interrupt preserves terminal goals", async () => {
+	const h = createHarness();
+	await h.goal("keep working");
+	await h.emit("agent_settled", { aborted: false });
+	assert.equal(latestGoalState(h.calls.entries)?.status, "active");
+	const terminal = updateAfterMetEvaluation(createActiveGoal("done"), { met: true, reason: "proof" });
+	h.calls.entries = [{ type: "custom", customType: GOAL_STATE_ENTRY, data: terminal }];
+	await h.emit("session_tree");
+	await h.emit("agent_settled", { aborted: true });
+	assert.equal(h.calls.entries.length, 1);
+	assert.equal(latestGoalState(h.calls.entries)?.status, "achieved");
+});
+
 test("valid resumed goal spends only its remaining evaluation budget", async () => {
 	const h = createHarness();
 	h.calls.entries = [{ type: "custom", customType: GOAL_STATE_ENTRY, data: { ...createActiveGoal("finish", 1), evaluatedTurns: 24 } }];
@@ -146,6 +181,7 @@ test("tree restoration and commands cannot enable goals in an orchestrated child
 	await h.emit("session_start");
 	await h.emit("session_tree");
 	await h.goal("child work");
+	await h.emit("agent_settled", { aborted: true });
 	assert.equal(await h.emit("before_agent_start"), undefined);
 	assert.equal(await h.emit("turn_end", completedTurn), undefined);
 	assert.equal(h.calls.status, undefined);

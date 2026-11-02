@@ -33,18 +33,32 @@ async function reviewAndConfirm(blocks: ReviewBlock[], ctx: ExtensionCommandCont
 }
 
 export default function (pi: ExtensionAPI) {
+	let operation: AbortController | undefined;
+	const cancel = () => { operation?.abort(); operation = undefined; };
+	pi.on("session_shutdown", cancel);
+	pi.on("input", (_event, ctx) => { cancel(); ctx.ui.setStatus("pi-transcript", undefined); return { action: "continue" }; });
+	pi.on("agent_start", (_event, ctx) => { cancel(); ctx.ui.setStatus("pi-transcript", undefined); });
 	pi.registerCommand("transcript", {
 		description: "Review and rewrite prompt-response context blocks",
 		handler: async (_args, ctx) => {
 			await ctx.waitForIdle();
 			if (!ctx.hasUI) return;
+			cancel();
+			const active = new AbortController();
+			operation = active;
 			const parentSession = ctx.sessionManager.getSessionFile();
+			const leafId = ctx.sessionManager.getLeafId();
+			const fresh = () => operation === active && !active.signal.aborted
+				&& ctx.sessionManager.getSessionFile() === parentSession && ctx.sessionManager.getLeafId() === leafId
+				&& ctx.isIdle() && !ctx.hasPendingMessages();
 			const review = buildReviewContext(ctx.sessionManager);
 			if (review.blocks.length === 0) {
 				ctx.ui.notify("No prompt-response blocks in this session", "warning");
 				return;
 			}
 			if (!await reviewAndConfirm(review.blocks, ctx)) return;
+			if (operation !== active) return;
+			if (!fresh()) { ctx.ui.notify("Session changed; reopen /transcript to review current context", "warning"); return; }
 			if (!parentSession) {
 				ctx.ui.notify("Context rewriting requires a persisted session", "warning");
 				return;
@@ -57,15 +71,17 @@ export default function (pi: ExtensionAPI) {
 			try {
 				if (needsSummary.length > 0) {
 					ctx.ui.setStatus("pi-transcript", "Summarizing context...");
-					summaries = await summarizeBlocks(needsSummary, ctx);
+					summaries = await summarizeBlocks(needsSummary, ctx, active.signal);
 				}
 			} catch (error) {
-				ctx.ui.notify(error instanceof Error ? error.message : "Context summarization failed", "error");
+				if (operation === active) ctx.ui.notify(error instanceof Error ? error.message : "Context summarization failed", "error");
 				return;
 			} finally {
-				ctx.ui.setStatus("pi-transcript", undefined);
+				if (operation === active) ctx.ui.setStatus("pi-transcript", undefined);
 			}
 
+			if (operation !== active) return;
+			if (!fresh()) { ctx.ui.notify("Session changed; no context was rewritten", "warning"); return; }
 			const sessionName = ctx.sessionManager.getSessionName();
 			const existingAssistant = review.blocks.flatMap((block) => block.messages ?? []).find((message) => message.role === "assistant");
 			const persistenceModel = existingAssistant

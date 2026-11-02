@@ -20,6 +20,8 @@ const GLOBAL_CONFIG_RELATIVE_PATH = ["extensions", "prompt-suggestions.json"];
 const PROJECT_CONFIG_RELATIVE_PATH = [".pi", "prompt-suggestions.json"];
 const PROMPT_RELATIVE_PATH = ["prompts", "suggestion-system-prompt.md"];
 const GHOST_CURSOR = "\x1b[7m \x1b[0m";
+// Current Pi uses fake-cursor APC markers; older supported TUI uses SGR.
+const FAKE_CURSOR_END = "\x1b_pi:/fc\x07";
 const GHOST_STYLE = "\x1b[2;90m";
 const ANSI_RESET = "\x1b[0m";
 const ALLOWED_SINGLE_WORD_SUGGESTIONS = new Set([
@@ -59,6 +61,7 @@ type MaybeModeContext = ExtensionContext & { mode?: PiMode };
 
 let suggestion: string | undefined;
 let generationId = 0;
+let generationController: AbortController | undefined;
 let lastCtx: ExtensionContext | undefined;
 let lastInputSource: InputSource | undefined;
 let currentConfig: PromptSuggestionsConfig = mergeConfigInputs();
@@ -91,10 +94,9 @@ class SuggestionEditor extends CustomEditor {
 			}
 		}
 
-		if (suggestion && isUserEditKey(data)) {
-			clearSuggestion();
-		}
-
+		// Every non-acceptance input invalidates optional work, including paste,
+		// encoded Unicode, history and edits that leave the editor empty.
+		clearSuggestion();
 		super.handleInput(data);
 	}
 }
@@ -105,22 +107,24 @@ export default function promptSuggestions(pi: ExtensionAPI) {
 		currentConfig = loadConfig(ctx.cwd, (message) => debug(ctx, message));
 		lastInputSource = undefined;
 		clearSuggestion(ctx);
-		if (!isSuggestionContextSupported(ctx, lastInputSource)) {
+		if (!currentConfig.enabled || !isSuggestionContextSupported(ctx, lastInputSource)) {
 			currentEditor = undefined;
 			return;
 		}
-		// Intentional: ghost-text rendering owns the editor component while enabled.
-		// This may replace another custom editor extension; use belowEditor display to avoid that tradeoff.
-		ctx.ui.setEditorComponent((tui, theme, keybindings) => {
-			currentEditor = new SuggestionEditor(tui, theme, keybindings);
-			return currentEditor;
-		});
+		installEditor(ctx);
 	});
 
 	pi.on("agent_start", (_event, ctx) => {
 		lastCtx = ctx;
 		clearSuggestion(ctx);
 	});
+
+	for (const event of ["session_tree", "session_compact", "model_select"] as const) {
+		pi.on(event, (_event, ctx) => {
+			lastCtx = ctx;
+			clearSuggestion(ctx);
+		});
+	}
 
 	pi.on("input", (event, ctx) => {
 		lastCtx = ctx;
@@ -130,13 +134,14 @@ export default function promptSuggestions(pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", (_event, ctx) => {
 		clearSuggestion(ctx);
-		if (isSuggestionContextSupported(ctx, lastInputSource)) ctx.ui.setEditorComponent(undefined);
+		// The host has no compare-and-restore editor API. Do not reset a later
+		// extension's editor; runtime replacement owns editor teardown.
 		currentEditor = undefined;
 		lastCtx = undefined;
 		lastInputSource = undefined;
 	});
 
-	pi.on("agent_end", async (event, ctx) => {
+	pi.on("agent_end", (event, ctx) => {
 		lastCtx = ctx;
 		clearSuggestion(ctx);
 		if (!isSuggestionContextSupported(ctx, lastInputSource)) return;
@@ -144,6 +149,7 @@ export default function promptSuggestions(pi: ExtensionAPI) {
 		const config = loadConfig(ctx.cwd, (message) => debug(ctx, message));
 		if (!config.enabled) return debug(ctx, "skipped: disabled by config");
 		if (!ctx.hasUI) return;
+		if (!currentEditor) installEditor(ctx);
 		if (ctx.hasPendingMessages()) return debug(ctx, "skipped: pending messages");
 		if (ctx.ui.getEditorText().trim().length > 0) return debug(ctx, "skipped: editor is not empty");
 
@@ -151,28 +157,50 @@ export default function promptSuggestions(pi: ExtensionAPI) {
 		if (!model) return debug(ctx, "skipped: no model selected");
 
 		const id = ++generationId;
+		const controller = new AbortController();
+		generationController = controller;
+		const abort = () => controller.abort();
+		ctx.signal?.addEventListener("abort", abort, { once: true });
+		if (ctx.signal?.aborted) abort();
 		debug(ctx, "generating...");
 
-		try {
-			const text = await generateSuggestion(event.messages, ctx, model, config);
-			debug(ctx, `raw: ${JSON.stringify(truncatePlain(text, 160))}`);
-			if (id !== generationId) return debug(ctx, "ignored: stale result");
-			if (ctx.hasPendingMessages()) return debug(ctx, "ignored: pending messages appeared");
-			if (ctx.ui.getEditorText().trim().length > 0) return debug(ctx, "ignored: editor became non-empty");
+		// Optional work must not participate in Pi's awaited agent_end/abort path.
+		void (async () => {
+			try {
+				const text = await generateSuggestion(event.messages, ctx, model, config, controller.signal);
+				if (controller.signal.aborted || id !== generationId) return;
+				debug(ctx, `raw: ${JSON.stringify(truncatePlain(text, 160))}`);
+				if (ctx.hasPendingMessages()) return debug(ctx, "ignored: pending messages appeared");
+				if (ctx.ui.getEditorText().trim().length > 0) return debug(ctx, "ignored: editor became non-empty");
 
-			const clean = sanitizeSuggestion(text, config.maxChars);
-			if (!clean) return debug(ctx, `rejected: ${JSON.stringify(truncatePlain(text, 160))}`);
+				const clean = sanitizeSuggestion(text, config.maxChars);
+				if (!clean) return debug(ctx, `rejected: ${JSON.stringify(truncatePlain(text, 160))}`);
 
-			showSuggestion(clean, ctx);
-			debug(ctx, `shown: ${clean}`);
-		} catch (error) {
-			debug(ctx, `error: ${error instanceof Error ? error.message : String(error)}`);
-			// Suggestion generation is best-effort and must never interrupt normal use.
-		}
+				showSuggestion(clean, ctx);
+				debug(ctx, `shown: ${clean}`);
+			} catch (error) {
+				if (!controller.signal.aborted && id === generationId) {
+					debug(ctx, `error: ${error instanceof Error ? error.message : String(error)}`);
+				}
+			} finally {
+				ctx.signal?.removeEventListener("abort", abort);
+				if (generationController === controller) generationController = undefined;
+			}
+		})();
+	});
+}
+
+function installEditor(ctx: ExtensionContext): void {
+	// Acceptance currently requires editor ownership in both display modes.
+	ctx.ui.setEditorComponent((tui, theme, keybindings) => {
+		currentEditor = new SuggestionEditor(tui, theme, keybindings);
+		return currentEditor;
 	});
 }
 
 function clearSuggestion(ctx = lastCtx): void {
+	generationController?.abort();
+	generationController = undefined;
 	const hadSuggestion = suggestion !== undefined;
 	generationId++;
 	suggestion = undefined;
@@ -210,7 +238,7 @@ function getCliMode(): PiMode | undefined {
 
 function showSuggestion(text: string, ctx = lastCtx): void {
 	clearSuggestion(ctx);
-	suggestion = text;
+	suggestion = sanitizeSuggestion(text, Number.MAX_SAFE_INTEGER);
 	renderSuggestion(ctx);
 }
 
@@ -233,12 +261,17 @@ function renderSuggestion(ctx = lastCtx): void {
 }
 
 function renderGhostSuggestionLines(lines: string[], width: number, text: string): string[] {
-	const contentLineIndex = lines.length >= 3 ? 1 : lines.findIndex((line) => line.includes(GHOST_CURSOR));
+	const clean = sanitizeSuggestion(text, Number.MAX_SAFE_INTEGER);
+	if (!clean) return lines;
+	const contentLineIndex = lines.findIndex((line) => line.includes(FAKE_CURSOR_END) || line.includes(GHOST_CURSOR));
 	if (contentLineIndex === -1) return lines;
-
-	const available = Math.max(0, width - 1);
-	const ghost = `${GHOST_STYLE}${truncateToWidth(text, available)}${ANSI_RESET}`;
-	const rendered = GHOST_CURSOR + ghost;
+	const line = lines[contentLineIndex];
+	const cursor = line.includes(FAKE_CURSOR_END) ? FAKE_CURSOR_END : GHOST_CURSOR;
+	const cursorEnd = line.indexOf(cursor) + cursor.length;
+	// Retain the host's prefix, cursor marker and cursor cell, including padding.
+	const prefix = line.slice(0, cursorEnd);
+	const available = Math.max(0, width - visibleWidth(prefix));
+	const rendered = prefix + GHOST_STYLE + truncateToWidth(clean, available) + ANSI_RESET;
 	return lines.map((line, index) =>
 		index === contentLineIndex ? rendered + " ".repeat(Math.max(0, width - visibleWidth(rendered))) : line,
 	);
@@ -249,37 +282,41 @@ async function generateSuggestion(
 	ctx: ExtensionContext,
 	model: Model<any>,
 	config: PromptSuggestionsConfig,
+	signal: AbortSignal,
 ): Promise<string> {
-	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-	if (!auth.ok) {
-		debug(ctx, `auth unavailable: ${"error" in auth ? auth.error : "unknown error"}`);
-		return "";
-	}
-
 	const llmMessages = convertToLlm(messages);
 	const context = buildSuggestionContext(llmMessages);
-	debug(ctx, `context: ${JSON.stringify(truncatePlain(context, 240))}`);
+	const request = {
+		systemPrompt: loadSuggestionSystemPrompt(ctx.cwd, (message) => debug(ctx, message)),
+		messages: [{ role: "user" as const, content: context, timestamp: Date.now() }],
+	};
 	const options = {
-		apiKey: auth.apiKey,
-		headers: auth.headers,
+		signal,
 		maxTokens: config.maxTokens,
 		reasoning: model.reasoning ? ("minimal" as const) : undefined,
 	};
-
-	const response = await completeSimple(
-		model,
-		{
-			systemPrompt: loadSuggestionSystemPrompt(ctx.cwd, (message) => debug(ctx, message)),
-			messages: [
-				{
-					role: "user",
-					content: context,
-					timestamp: Date.now(),
-				},
-			],
-		},
-		options,
-	);
+	signal.throwIfAborted();
+	debug(ctx, `context: ${JSON.stringify(truncatePlain(context, 240))}`);
+	// Current Pi owns virtual routing and full resolved auth. Older hosts expose
+	// only the compatibility facade; preserve its endpoint and environment too.
+	let response: AssistantMessage;
+	if (ctx.modelRegistry.streamSimple) {
+		response = await withCancellation(ctx.modelRegistry.streamSimple(model, request, options).result(), signal);
+	} else {
+		const auth = await withCancellation(ctx.modelRegistry.getApiKeyAndHeaders(model), signal);
+		if (!auth.ok) {
+			debug(ctx, `auth unavailable: ${"error" in auth ? auth.error : "unknown error"}`);
+			return "";
+		}
+		signal.throwIfAborted();
+		const requestOptions = { ...options, apiKey: auth.apiKey, headers: auth.headers, env: auth.env };
+		response = await withCancellation(completeSimple(
+			auth.baseUrl ? { ...model, baseUrl: auth.baseUrl } : model,
+			request,
+			requestOptions,
+		), signal);
+	}
+	signal.throwIfAborted();
 
 	debug(
 		ctx,
@@ -288,7 +325,18 @@ async function generateSuggestion(
 	if (response.diagnostics?.length) {
 		debug(ctx, `diagnostics: ${JSON.stringify(response.diagnostics).slice(0, 500)}`);
 	}
+	if (response.stopReason === "error" || response.stopReason === "aborted") return "";
 	return extractAssistantText(response);
+}
+
+// Release extension ownership even when an older auth/provider ignores abort.
+function withCancellation<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
+	return new Promise((resolve, reject) => {
+		const abort = () => reject(signal.reason);
+		signal.addEventListener("abort", abort, { once: true });
+		pending.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+		if (signal.aborted) abort();
+	});
 }
 
 function loadSuggestionSystemPrompt(cwd: string, onWarning?: (message: string) => void): string {
@@ -361,7 +409,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function sanitizeSuggestion(text: string, maxChars = DEFAULT_MAX_CHARS): string | undefined {
 	let clean = text.trim();
 	if (!clean) return undefined;
-	if (clean.includes("\n")) return undefined;
+	// Trim ordinary response-edge whitespace as before, but never allow terminal
+	// commands (including C1 forms) or embedded control/line separators.
+	if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/u.test(text)) return undefined;
+	if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(clean)) return undefined;
 
 	clean = clean.replace(/^```(?:\w+)?\s*/, "").replace(/\s*```$/, "").trim();
 	clean = clean.replace(/^['"“”‘’]+|['"“”‘’]+$/g, "").trim();
@@ -411,16 +462,6 @@ function isErrorSuggestion(lower: string): boolean {
 function isAllowedSingleWordSuggestion(lower: string, clean: string): boolean {
 	if (clean.startsWith("/")) return true;
 	return ALLOWED_SINGLE_WORD_SUGGESTIONS.has(lower);
-}
-
-function isUserEditKey(data: string): boolean {
-	if (data.length === 1 && data.charCodeAt(0) >= 32) return true;
-	return (
-		matchesKey(data, Key.backspace) ||
-		matchesKey(data, Key.delete) ||
-		matchesKey(data, Key.enter) ||
-		matchesKey(data, Key.tab)
-	);
 }
 
 function truncatePlain(text: string, max: number): string {
@@ -536,6 +577,11 @@ function debug(ctx: ExtensionContext, message: string): void {
 }
 
 export const __test__ = {
+	SuggestionEditor,
+	generateSuggestion,
+	showSuggestion,
+	clearSuggestion,
+	withCancellation,
 	buildSuggestionContext,
 	convertToLlm,
 	extractAssistantText,

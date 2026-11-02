@@ -8,9 +8,15 @@ function isSubagentDetails(value: unknown): value is SubagentDetails {
 
 function truncateUtf8(text: string | undefined, maxBytes: number): string | undefined {
 	if (text === undefined || Buffer.byteLength(text, "utf8") <= maxBytes) return text;
-	let truncated = text.slice(0, maxBytes);
-	while (Buffer.byteLength(truncated, "utf8") > maxBytes) truncated = truncated.slice(0, -1);
-	return `${truncated}\n[truncated]`;
+	const marker = "\n[truncated]";
+	let truncated = "";
+	let bytes = Buffer.byteLength(marker);
+	for (const character of text) {
+		bytes += Buffer.byteLength(character);
+		if (bytes > maxBytes) break;
+		truncated += character;
+	}
+	return truncated + marker;
 }
 
 function capResult(result: SingleResult): SingleResult {
@@ -19,7 +25,10 @@ function capResult(result: SingleResult): SingleResult {
 
 function capDetails(details: SubagentDetails): { details: SubagentDetails; truncated: boolean } {
 	if (Buffer.byteLength(JSON.stringify(details), "utf8") <= NESTED_SUBAGENT_DETAIL_CAP) return { details, truncated: false };
-	return { details: { includeLocationalAgents: details.includeLocationalAgents, locationalAgents: details.locationalAgents.slice(0, 8), results: details.results.slice(0, 1).map(capResult) }, truncated: true };
+	const capped = { includeLocationalAgents: details.includeLocationalAgents, locationalAgents: [], results: details.results.slice(0, 1).map(capResult) };
+	// Unknown fields and JSON escaping can defeat field-by-field limits.
+	if (Buffer.byteLength(JSON.stringify(capped)) > NESTED_SUBAGENT_DETAIL_CAP / 2) capped.results = [];
+	return { details: capped, truncated: true };
 }
 
 function resultText(result: any): string | undefined { return result?.content?.filter((part: any) => part?.type === "text" && typeof part.text === "string").map((part: any) => part.text).join("\n").trim() || undefined; }
@@ -33,9 +42,19 @@ export function applyNestedSubagentEvent(result: SingleResult, event: any): bool
 		nested = { toolCallId: event.toolCallId, toolName: "subagent", status: "running" };
 		result.nestedSubagents.push(nested);
 	}
-	if (event.type === "tool_execution_start") { nested.status = "running"; nested.error = undefined; return true; }
+	if (event.type === "tool_execution_start") { nested.status = "running"; nested.error = undefined; }
 	const source = event.type === "tool_execution_update" ? event.partialResult?.details : event.result?.details;
 	if (isSubagentDetails(source)) { const capped = capDetails(source); nested.details = capped.details; nested.truncated ||= capped.truncated; }
-	if (event.type === "tool_execution_end") { nested.status = event.isError ? "failed" : "completed"; nested.error = event.isError ? resultText(event.result) ?? "Nested subagent call failed" : undefined; }
+	if (event.type === "tool_execution_end") {
+		nested.status = event.isError ? "failed" : "completed";
+		const error = event.isError ? resultText(event.result) ?? "Nested subagent call failed" : undefined;
+		nested.error = truncateUtf8(error, 2048);
+		nested.truncated ||= nested.error !== error;
+	}
+	if (Buffer.byteLength(JSON.stringify(nested)) > NESTED_SUBAGENT_DETAIL_CAP) {
+		nested.details = undefined;
+		nested.toolCallId = truncateUtf8(nested.toolCallId, 1024) ?? "";
+		nested.truncated = true;
+	}
 	return true;
 }

@@ -252,6 +252,23 @@ export function formatAgentList(agents: AgentConfig[], maxItems: number): { text
 	return { text: listed.length ? listed.map((agent) => `${agent.id} (${agent.origin}): ${agent.description}`).join("; ") : "none", remaining: agents.length - listed.length };
 }
 
-function realPathIfExists(value: string): string { try { return fs.realpathSync.native(value); } catch { return path.resolve(value); } }
+export function realPathIfExists(value: string, links = new Set<string>()): string {
+	const absolute = path.resolve(value);
+	try { return fs.realpathSync.native(absolute); } catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+	}
+	// Resolve existing ancestors, including dangling symlinks, before adding missing suffixes.
+	try {
+		if (fs.lstatSync(absolute).isSymbolicLink()) {
+			if (links.has(absolute)) throw new Error(`Symlink cycle: ${absolute}`);
+			links.add(absolute);
+			return realPathIfExists(path.resolve(path.dirname(absolute), fs.readlinkSync(absolute)), links);
+		}
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+	}
+	const parent = path.dirname(absolute);
+	return parent === absolute ? absolute : path.join(realPathIfExists(parent, links), path.basename(absolute));
+}
 export function isPathInside(candidate: string, root: string): boolean { const relative = path.relative(realPathIfExists(root), realPathIfExists(candidate)); return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)); }
 export function getAgentInstructionsFileName(): string { return SUBAGENTS_FILE; }

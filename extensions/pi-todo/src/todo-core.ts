@@ -14,6 +14,8 @@ export interface TodoModel {
 }
 
 export interface TodoDetails {
+	/** State is persisted separately; this result is only a display snapshot. */
+	stateEntry?: true;
 	action: TodoAction;
 	todos: Todo[];
 	nextId: number;
@@ -23,8 +25,12 @@ export interface TodoDetails {
 	error?: string;
 }
 
+export const TODO_STATE_ENTRY = "pi-todo-state";
+
 export interface ToolResultBranchEntry {
 	type?: string;
+	customType?: string;
+	data?: unknown;
 	message?: {
 		role?: string;
 		toolName?: string;
@@ -76,7 +82,9 @@ export function isTodoAction(action: unknown): action is TodoAction {
 	return action === "list" || action === "add" || action === "complete" || action === "clear";
 }
 
-function normalizeStoredTodo(todo: StoredTodo): Todo | undefined {
+function normalizeStoredTodo(value: unknown): Todo | undefined {
+	if (!value || typeof value !== "object") return undefined;
+	const todo = value as StoredTodo;
 	if (typeof todo.id !== "number" || !Number.isInteger(todo.id) || typeof todo.text !== "string") return undefined;
 	const state: TodoState = todo.state === "done" || todo.state === "failed" || todo.state === "pending"
 		? todo.state
@@ -89,7 +97,7 @@ function normalizeStoredTodo(todo: StoredTodo): Todo | undefined {
 function normalizeStoredDetails(details: unknown): TodoModel | undefined {
 	const stored = details as StoredTodoDetails | undefined;
 	if (!stored || !Array.isArray(stored.todos)) return undefined;
-	const todos = stored.todos.map((todo) => normalizeStoredTodo(todo as StoredTodo)).filter((todo): todo is Todo => !!todo);
+	const todos = stored.todos.map(normalizeStoredTodo).filter((todo): todo is Todo => !!todo);
 	const nextId = typeof stored.nextId === "number" && Number.isInteger(stored.nextId)
 		? stored.nextId
 		: Math.max(1, ...todos.map((todo) => todo.id + 1));
@@ -101,11 +109,14 @@ export function reconstructTodoModelFromBranch(entries: Iterable<ToolResultBranc
 	let model = createTodoModel();
 
 	for (const entry of entries) {
-		if (entry.type !== "message") continue;
+		// Apply both formats in branch order; modern result echoes can finish out of order.
 		const msg = entry.message;
-		if (msg?.role !== "toolResult" || msg.toolName !== "todo") continue;
-
-		const storedModel = normalizeStoredDetails(msg.details);
+		if (msg?.details && typeof msg.details === "object" && "stateEntry" in msg.details && msg.details.stateEntry === true) continue;
+		const details = entry.type === "custom" && entry.customType === TODO_STATE_ENTRY
+			? entry.data
+			: entry.type === "message" && msg?.role === "toolResult" && msg.toolName === "todo"
+				? msg.details : undefined;
+		const storedModel = normalizeStoredDetails(details);
 		if (storedModel) model = storedModel;
 	}
 
