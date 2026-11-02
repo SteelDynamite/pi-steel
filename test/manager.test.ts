@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import fs, { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import fs, { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import test from "node:test";
 import { DefaultPackageManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import lockfile from "proper-lockfile";
@@ -115,6 +115,113 @@ test("manual external, modified ownership, standalone identities and project ove
   f.settings.setPackages([f.root]);
   f.settings.setProjectPackages([f.root]);
   assert.throws(attempt, /Project Steel/);
+});
+
+test("project exclusions survive synchronization without changing global selection or other projects", async t => {
+  const f = fixture(t);
+  const override = {
+    source: relative(join(f.cwd, ".pi"), f.root), autoload: false,
+    extensions: [`-${member.entry}`], skills: [`!${member.skills![0]}/**/*`], prompts: [`!${member.prompts![0]}/**/*`],
+  };
+  const replacement = join(f.dir, "replacement");
+  f.file(join(replacement, "package.json"), JSON.stringify({ name: "replacement", pi: { extensions: ["index.ts"] } }));
+  f.file(join(replacement, "index.ts"), "export default () => {};");
+  const projectPath = join(f.cwd, ".pi", "settings.json");
+  const project = JSON.stringify({ packages: [override, replacement], theme: "light" });
+  f.file(projectPath, project);
+  await f.settings.reload();
+  assert.deepEqual(plan(f.config, [member], f.settings, f.host, f.root, f.agentDir, f.cwd).projectExcluded, [member.id]);
+  await synchronize(f.config, [member], f.settings, f.host, f.root, f.agentDir, f.cwd, f.configPath);
+  assert.equal(readFileSync(projectPath, "utf8"), project);
+  assert.deepEqual(f.settings.getGlobalSettings().packages, [bundledFilters(f.root, [member], [member.id])]);
+  assert.equal(readConfig(f.configPath, [member]).active, "full");
+  const global = readFileSync(join(f.agentDir, "settings.json"), "utf8");
+  assert.equal((await synchronize(f.config, [member], f.settings, f.host, f.root, f.agentDir, f.cwd, f.configPath)).changed, false);
+  assert.equal(readFileSync(join(f.agentDir, "settings.json"), "utf8"), global);
+  const resolved = await f.host.resolve(async () => "error");
+  assert.equal(resolved.extensions.find(r => r.path === join(f.root, "index.ts"))?.enabled, true);
+  assert.equal(resolved.extensions.find(r => r.path === join(replacement, "index.ts"))?.enabled, true);
+  for (const type of ["extensions", "skills", "prompts"] as const) {
+    const resources = resolved[type].filter(r => r.path.startsWith(join(f.root, "extensions")));
+    assert(resources.length > 0);
+    assert(resources.every(r => !r.enabled), type);
+  }
+  const otherCwd = join(f.dir, "other-project");
+  const otherSettings = SettingsManager.create(otherCwd, f.agentDir, { projectTrusted: true });
+  const otherHost = new DefaultPackageManager({ cwd: otherCwd, agentDir: f.agentDir, settingsManager: otherSettings });
+  const other = await otherHost.resolve(async () => "error");
+  assert.equal(other.extensions.find(r => r.path === join(f.root, member.entry))?.enabled, true);
+  // Exclusions stay valid when switching global loadouts, including an inactive owner.
+  for (const active of ["minimal", "full"]) {
+    f.config.active = active;
+    await synchronize(f.config, [member], f.settings, f.host, f.root, f.agentDir, f.cwd, f.configPath);
+    assert.equal((await f.host.resolve(async () => "error")).extensions.find(r => r.path === join(f.root, member.entry))?.enabled, false);
+    assert.equal(readFileSync(projectPath, "utf8"), project);
+  }
+  unlinkSync(projectPath);
+  await f.settings.reload();
+  assert.equal((await f.host.resolve(async () => "error")).extensions.find(r => r.path === join(f.root, member.entry))?.enabled, true);
+});
+
+test("Git project deltas reuse the global installation across equivalent source spellings and refs", async t => {
+  const f = fixture(t);
+  const root = join(f.agentDir, "git/github.com/SteelDynamite/pi-steel");
+  cpSync(f.root, root, { recursive: true });
+  const source = "https://github.com/SteelDynamite/pi-steel.git@global-ref";
+  const override = { source: "git:github.com/SteelDynamite/pi-steel@project-ref", autoload: false, extensions: [`-${member.entry}`], skills: [`!${member.skills![0]}/**/*`], prompts: [`!${member.prompts![0]}/**/*`] };
+  f.settings.setPackages([bundledFilters(source, [member], [member.id])]);
+  f.settings.setProjectPackages([override]);
+  const planned = plan(f.config, [member], f.settings, f.host, root, f.agentDir, f.cwd);
+  assert.equal(planned.changed, false);
+  assert.deepEqual(planned.install, []);
+  assert.deepEqual(planned.projectExcluded, [member.id]);
+  const resolved = await f.host.resolve(async () => { assert.fail("a project delta must not install another checkout"); });
+  assert.equal(resolved.extensions.find(r => r.path === join(root, "index.ts"))?.enabled, true);
+  assert.equal(resolved.extensions.find(r => r.path === join(root, member.entry))?.enabled, false);
+  assert.equal(resolved.extensions.filter(r => r.path === join(root, member.entry)).length, 1);
+  assert(!fs.existsSync(join(f.cwd, ".pi/git")));
+});
+
+test("project exclusions reject additions, manager removal, partial companions, duplicates, and aliases", t => {
+  const f = fixture(t);
+  const valid = { source: f.root, autoload: false, extensions: [`-${member.entry}`], skills: [`!${member.skills![0]}/**/*`], prompts: [`!${member.prompts![0]}/**/*`] };
+  const attempt = (entry: unknown) => plan(f.config, [member], f.settings, f.host, f.root, f.agentDir, f.cwd, { packages: [entry] } as any);
+  for (const entry of [
+    { ...valid, autoload: true }, { ...valid, autoload: undefined }, { ...valid, unknown: true },
+    ...["+index.ts", "-index.ts", "!**/*", `+${member.entry}`, member.entry, "-extensions/unknown/index.ts", `-${member.entry}/../index.ts`].map(path => ({ ...valid, extensions: [path] })),
+    { ...valid, extensions: [...valid.extensions, ...valid.extensions] },
+    { ...valid, extensions: "bad" }, { ...valid, skills: [null] },
+    { ...valid, skills: [] }, { ...valid, prompts: undefined },
+    { ...valid, skills: ["!**/*"] }, { ...valid, skills: ["+other"] },
+    { ...valid, extensions: [] }, { ...valid, themes: ["!themes/**/*"] },
+  ]) assert.throws(() => attempt(entry), /[Pp]roject Steel|configuration field/);
+  assert.throws(() => plan(f.config, [member], f.settings, f.host, f.root, f.agentDir, f.cwd, { packages: [valid, valid] }), /single exclusion delta/);
+  const alias = join(f.dir, "alias");
+  symlinkSync(f.root, alias, "dir");
+  assert.throws(() => attempt({ ...valid, source: alias }), /Standalone manager/);
+  // A same-name replacement or standalone bundled source is still a collision.
+  const standalone = join(f.dir, "standalone");
+  f.file(join(standalone, "package.json"), JSON.stringify({ name: member.id }));
+  for (const source of [standalone, member.source, join(f.root, member.entry)]) {
+    assert.throws(() => plan(f.config, [member], f.settings, f.host, f.root, f.agentDir, f.cwd, { packages: [valid, source] }), /Standalone/);
+  }
+});
+
+test("project theme exclusions require the whole owner, while empty deltas are no-ops", async t => {
+  const f = fixture(t);
+  const themed = { ...member, themes: ["extensions/one/themes"] };
+  const override = { source: f.root, autoload: false, extensions: [`-${member.entry}`], skills: [`!${member.skills![0]}/**/*`], prompts: [`!${member.prompts![0]}/**/*`], themes: ["!extensions/one/themes/**/*"] };
+  const attempt = () => plan(f.config, [themed], f.settings, f.host, f.root, f.agentDir, f.cwd);
+  f.file(join(f.root, "extensions/one/themes/theme.json"), "{}");
+  f.file(join(f.root, "package.json"), JSON.stringify({ pi: { extensions: ["index.ts", member.entry], skills: member.skills, prompts: member.prompts, themes: themed.themes } }));
+  f.settings.setProjectPackages([override]);
+  assert.deepEqual(attempt().projectExcluded, [member.id]);
+  f.settings.setPackages([bundledFilters(f.root, [themed], [member.id])]);
+  const resolved = await f.host.resolve(async () => "error");
+  assert.equal(resolved.themes.find(r => r.path.endsWith("theme.json"))?.enabled, false);
+  f.settings.setProjectPackages([{ source: f.root, autoload: false, extensions: [], skills: [], prompts: [], themes: [] }]);
+  assert.deepEqual(attempt().projectExcluded, []);
+  assert.equal((await f.host.resolve(async () => "error")).themes.find(r => r.path.endsWith("theme.json"))?.enabled, true, "empty delta arrays do not disable resources");
 });
 
 test("root must be configured as a package, not merely a directly loaded entry", t => {
@@ -378,7 +485,7 @@ test("absent settings are locked before inspection and are not created on refusa
   assert.throws(() => readFileSync(f.configPath), /ENOENT/);
 });
 
-for (const conflict of ["manual ownership", "project declaration", "global direct extension"] as const) {
+for (const conflict of ["manual ownership", "project declaration", "invalid project exclusion", "global direct extension"] as const) {
   test(`final locked replan rejects concurrent ${conflict}`, async t => {
     const f = fixture(t);
     const source = join(f.dir, "external");
@@ -391,8 +498,8 @@ for (const conflict of ["manual ownership", "project declaration", "global direc
     const reload = f.settings.reload.bind(f.settings);
     f.settings.reload = async () => {
       await reload();
-      if (conflict === "project declaration") {
-        f.file(join(f.cwd, ".pi", "settings.json"), JSON.stringify({ packages: [f.root] }));
+      if (conflict === "project declaration" || conflict === "invalid project exclusion") {
+        f.file(join(f.cwd, ".pi", "settings.json"), JSON.stringify({ packages: [conflict === "project declaration" ? f.root : { source: f.root, autoload: false, extensions: [`-${member.entry}`] }] }));
       } else {
         const disk = JSON.parse(readFileSync(join(f.agentDir, "settings.json"), "utf8"));
         if (conflict === "manual ownership") disk.packages[1] = { source, extensions: ["custom.ts"] };

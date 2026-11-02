@@ -33,7 +33,7 @@ export default function steel(pi: ExtensionAPI): void {
         ctx.ui.notify(names.map(n => `${n === config.active ? "* " : "  "}${n}`).join("\n"), "info");
         return false;
       }
-      // Read project declarations only for collision checks; never execute project npmCommand.
+      // Validate project exclusions and collisions; never execute project npmCommand.
       const settings = SettingsManager.create(ctx.cwd, agentDir, { projectTrusted: false });
       const declarations = SettingsManager.create(ctx.cwd, agentDir, { projectTrusted: true });
       const errors = [...settings.drainErrors(), ...declarations.drainErrors()];
@@ -47,7 +47,7 @@ export default function steel(pi: ExtensionAPI): void {
       const preview = plan(config, members, settings, host, root, agentDir, ctx.cwd, declarations.getProjectSettings());
       const approvedSettings = JSON.stringify(settings.getGlobalSettings());
       if (command === "status") {
-        ctx.ui.notify(`Selected: ${config.active}\nBundled: ${selection.bundled.join(", ") || "none"}\nExternal: ${selection.external.join(", ") || "none"}\n${preview.changed || preview.install.length ? "Drift; run /steel sync" : "Configured declarations match"}${reloadNeeded ? "; reload or restart Pi to apply saved changes" : " (runtime requires reload after outside edits)"}${syncError ? `\nLast sync failed: ${syncError}` : ""}`, "info");
+        ctx.ui.notify(`Selected: ${config.active}\nBundled: ${selection.bundled.join(", ") || "none"}\nExternal: ${selection.external.join(", ") || "none"}\nProject exclusions: ${preview.projectExcluded.join(", ") || "none"}\n${preview.changed || preview.install.length ? "Drift; run /steel sync" : "Configured declarations match"}${reloadNeeded ? "; reload or restart Pi to apply saved changes" : " (runtime requires reload after outside edits)"}${syncError ? `\nLast sync failed: ${syncError}` : ""}`, "info");
         return false;
       }
       if (process.env.PI_ORCHESTRATED_CHILD === "1") throw new Error("Steel mutation is disabled in orchestrated children");

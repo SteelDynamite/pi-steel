@@ -53,6 +53,31 @@ Run `/steel use work`. Bundled IDs and their resources are recorded in [extensio
 
 `managed`, the optional `pending` ownership journal, and `incomplete` download records are internal state; do not edit them. Do not copy shipped definitions into `loadouts`. Editing configuration alone does not change loaded resources: run `/steel sync`, or let the next session start synchronize and then reload if prompted.
 
+### Project-local exclusions
+
+Keep the global loadout and disable bundled extensions in one trusted project using Pi's `autoload: false` package delta. For a global HTTPS Git installation, merge this entry into `.pi/settings.json`'s `packages` array, preserving other settings and packages:
+
+```json
+{
+  "packages": [
+    {
+      "source": "https://github.com/SteelDynamite/pi-steel.git",
+      "autoload": false,
+      "extensions": ["-extensions/pi-doc-manifests/index.ts"],
+      "skills": ["!extensions/pi-doc-manifests/skills/**/*"]
+    }
+  ]
+}
+```
+
+Use the same package identity as your global declaration, retaining its source/ref. For local installations, use the same absolute package path or a path relative to the project's `.pi` directory—not the agent directory. Do not install a second copy of Steel.
+
+Only one Steel delta is allowed. Use exact `-<entry>` exclusions from [extensions.manifest.json](extensions.manifest.json), plus `!<directory>/**/*` for **every** declared skill, prompt, or theme directory owned by each excluded extension. Omit resource types with no companions. Empty arrays mean no change in a delta, not “disable all.” Inclusions, arbitrary globs, manager exclusion, and independent companion toggles are rejected. Asset files need no filters; they are used only by their owning extension.
+
+Run `/reload` or restart Pi after editing project settings. `/steel status` lists configured project exclusions; `/steel sync` preserves them without changing the global selection. Other projects remain unaffected. Children use the exclusions when running in the same working directory with project trust granted; a one-run parent `--approve` does not grant trust to children. Remove the delta and reload to restore the global selection.
+
+An unrelated replacement can be added separately through Pi's normal resource settings. Existing bundled-name/source and duplicate-path collision checks still apply; this is exclusion support, not permission to load standalone copies of bundled modules. Disabling doc manifests does not delete project-owned creator skills or prior conversation text.
+
 ### Observational memory
 
 Both shipped loadouts include upstream [pi-observational-memory](https://github.com/elpapi42/pi-observational-memory), tracking its unpinned Git default branch. It remains an external package, not a vendored module or fork. [presets/memory/steel.json](presets/memory/steel.json) is a legacy compatibility snapshot, not the recommended shipped selection; use `Everything` or `ChatBot` instead.
@@ -81,8 +106,8 @@ The optional settings fragment and legacy configuration snapshot are never appli
 
 - Unrelated manual packages and resource settings are preserved.
 - Selecting an already-manual external package is rejected rather than silently claiming it. Shared ownership is not supported.
-- Manually removing a selected member creates drift; automatic synchronization or `/steel sync` restores it. Change the loadout for permanent exclusion.
-- Standalone installations of bundled extensions, direct duplicate entry paths, and project-scoped Steel declarations are rejected. Do not load the old individual installations alongside this package.
+- Manually removing a selected member globally creates drift; automatic synchronization or `/steel sync` restores it. Change the loadout for global exclusion or use a project-local exclusion above.
+- Standalone installations of bundled extensions and direct duplicate entry paths are rejected. Project Steel declarations are limited to the exclusion delta above. Do not load the old individual installations alongside this package.
 - Managed external source spelling/version cannot be changed in place. This initial manager does not provide an update or ownership-release command.
 - Downloads finish before resource declarations change. Failures report completed downloads; journaled partial caches are repaired on retry rather than mistaken for successful installations.
 - Settings are revalidated after confirmation and merged under Pi 1.4's settings-file lock. Atomic replacement preserves the original file if writing fails. Editors that ignore locks, concurrent project edits, and simultaneous installation of the same package are not serialized by Steel.

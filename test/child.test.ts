@@ -10,7 +10,9 @@ import { getPackageDir } from "@earendil-works/pi-coding-agent";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(process.env.STEEL_TEST_PACKAGE_ROOT ?? join(here, ".."));
 
-for (const loadout of ["custom", "memory", "Everything", "ChatBot"]) test(`real delegation inherits ${loadout}, behavioral agents, and manual resources without parent -e`, { timeout: 120_000 }, () => {
+for (const variant of ["custom", "memory", "Everything", "ChatBot", "Everything-exclusions"]) test(`real delegation inherits ${variant}, behavioral agents, and manual resources without parent -e`, { timeout: 120_000 }, () => {
+  const excluded = variant === "Everything-exclusions";
+  const loadout = excluded ? "Everything" : variant;
   const memory = loadout !== "custom";
   const safety = loadout !== "ChatBot";
   const all = loadout === "memory" || loadout === "Everything";
@@ -36,7 +38,21 @@ for (const loadout of ["custom", "memory", "Everything", "ChatBot"]) test(`real 
       // Manual loads first to seed restored state before the real goal handler.
       packages: [manual, root, ...(memory ? [{ source: shipped ? memorySource : memoryPath }] : [])], defaultProvider: "steel-local", defaultModel: "fixture",
       compaction: { enabled: false }, retry: { enabled: false }, ...(memory ? memorySettings : {}),
+      // The child resolves trust independently; grant it only in this isolated fixture.
+      ...(excluded ? { defaultProjectTrust: "always" } : {}),
     }));
+    const projectSettingsPath = join(cwd, ".pi/settings.json");
+    if (excluded) {
+      const replacement = join(home, "replacement");
+      mkdirSync(replacement);
+      writeFileSync(join(replacement, "package.json"), JSON.stringify({ name: "child-replacement", pi: { extensions: ["index.ts"] } }));
+      writeFileSync(join(replacement, "index.ts"), 'export default function(pi) { pi.registerCommand("replacement-fixture", { description: "Independent replacement", handler: async () => {} }); }');
+      mkdirSync(dirname(projectSettingsPath));
+      writeFileSync(projectSettingsPath, JSON.stringify({ packages: [{
+        source: root, autoload: false, extensions: ["-extensions/pi-doc-manifests/index.ts"], skills: ["!extensions/pi-doc-manifests/skills/**/*"],
+      }, replacement] }));
+    }
+    const projectBefore = excluded ? readFileSync(projectSettingsPath, "utf8") : undefined;
     if (memory) {
       // Seed completed external ownership: print mode cannot confirm installs.
       preset.loadouts.memory.external = [memoryPath];
@@ -61,7 +77,7 @@ export default function(pi) {
     // No ambient env, API keys, auth paths, NODE_OPTIONS, or parent resource flags.
     // Keep Node's native TypeScript behavior; the only inherited preload denies
     // networking before either CLI initializes.
-    const result = spawnSync(process.execPath, [join(hostRoot, host.bin.pi), "--offline", "--no-approve", "--no-session", "-p",
+    const result = spawnSync(process.execPath, [join(hostRoot, host.bin.pi), "--offline", excluded ? "--approve" : "--no-approve", "--no-session", "-p",
       "-e", parent, "/steel sync", "Delegate child inspection to the bundled worker."], {
       cwd, encoding: "utf8", timeout: 100_000,
       env: { PATH: process.env.PATH, HOME: home, TMPDIR: tmpdir(), NO_COLOR: "1", PI_OFFLINE: "1",
@@ -98,7 +114,15 @@ export default function(pi) {
     assert(!commands.includes("parent-only"));
     assert(!commands.includes("implement"), "subagent must not export workflow prompts to children");
     for (const name of ["goal", "mindful", "recap"]) assert.equal(commands.includes(name), safety, name);
-    for (const name of ["doc-manifests-designer", "doc-manifests-maintainer", "doc-manifests-session-reviewer"]) assert.equal(commands.includes(`skill:${name}`), all, name);
+    for (const name of ["doc-manifests-designer", "doc-manifests-maintainer", "doc-manifests-session-reviewer"]) assert.equal(commands.includes(`skill:${name}`), all && !excluded, name);
+    assert.equal(commands.includes("doc-manifests"), all && !excluded);
+    assert.equal(commands.includes("replacement-fixture"), excluded);
+    if (excluded) {
+      assert.equal(readFileSync(projectSettingsPath, "utf8"), projectBefore);
+      assert.equal(JSON.parse(readFileSync(join(agentDir, "steel.json"), "utf8")).active, "Everything");
+      const global = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"));
+      assert(global.packages.find((entry: any) => entry.source === root).extensions.includes("+extensions/pi-doc-manifests/index.ts"));
+    }
     assert.equal(child.tools.some((tool: { name: string }) => tool.name === "todo"), all, "bundled selection reaches child");
     assert.equal(commands.includes("om:status"), memory, "external memory reaches child");
     assert.equal(child.tools.some((tool: { name: string }) => tool.name === "recall"), memory);

@@ -132,7 +132,7 @@ function bundledConflict(installed: string, root: string, members: Member[], inc
 
 type PackageHost = Pick<DefaultPackageManager, "getInstalledPath" | "install">;
 type ProjectDeclarations = ReturnType<SettingsManager["getProjectSettings"]>;
-export interface Plan { packages: PackageSource[]; managed: PackageSource[]; install: string[]; changed: boolean }
+export interface Plan { packages: PackageSource[]; managed: PackageSource[]; install: string[]; changed: boolean; projectExcluded: string[] }
 export function plan(config: Config, members: Member[], settings: SettingsManager, host: PackageHost, root: string, agentDir: string, cwd: string, projectDeclarations = settings.getProjectSettings()): Plan {
   const loadout = select(config, members);
   const current = settings.getGlobalSettings().packages ?? [];
@@ -146,7 +146,28 @@ export function plan(config: Config, members: Member[], settings: SettingsManage
   if (roots.length !== 1) throw new Error("Steel requires exactly one global package declaration pointing to its package directory; install the directory/Git/npm package, not index.ts or only -e");
   const rootEntry = roots[0]!;
   const rootSource = sourceOf(rootEntry);
-  if (project.some(entry => isRoot(entry, "project") || sameSource(rootSource, agentDir, sourceOf(entry), join(cwd, ".pi")))) throw new Error("Project Steel declaration conflicts with global loadout; remove it explicitly");
+  // Pi applies same-identity project deltas to the global installation. A physical
+  // alias is not enough: a different host identity can load a second copy.
+  const overrides = project.filter(entry => sameSource(rootSource, agentDir, sourceOf(entry), join(cwd, ".pi")));
+  if (overrides.length > 1) throw new Error("Project Steel declaration must be a single exclusion delta");
+  const override = overrides[0];
+  let projectExcluded: string[] = [];
+  if (override !== undefined) {
+    if (typeof override === "string" || override.autoload !== false) throw new Error("Project Steel declaration requires autoload: false and whole-extension exclusions");
+    keys(override, ["source", "autoload", ...resourceTypes]);
+    for (const type of resourceTypes) if (override[type] !== undefined && !strings(override[type])) throw new Error(`Invalid project Steel ${type}`);
+    const exclusions = override.extensions ?? [];
+    const excluded = members.filter(member => exclusions.includes(`-${member.entry}`));
+    if (excluded.length !== exclusions.length) throw new Error("Project Steel extensions must use -<bundled entry path>; manager, inclusions, and globs are not allowed");
+    // Accept only complete companion-directory exclusions, not arbitrary globs or
+    // independent companion toggles. Directory filters also cover new files.
+    for (const type of ["skills", "prompts", "themes"] as const) {
+      const expected = new Set(excluded.flatMap(member => member[type] ?? []).map(path => `!${path}/**/*`));
+      const actual = override[type] ?? [];
+      if (actual.length !== expected.size || actual.some(pattern => !expected.has(pattern))) throw new Error(`Project Steel ${type} must exclude exactly the disabled extensions' companions: ${[...expected].join(", ") || "none"}`);
+    }
+    projectExcluded = excluded.map(member => member.id);
+  }
   const all = [...current.map(entry => ({ entry, base: agentDir, scope: "user" as const })), ...project.map(entry => ({ entry, base: join(cwd, ".pi"), scope: "project" as const }))];
   for (let i = 0; i < config.managed.length; i++) {
     if (config.managed.slice(0, i).some(entry => sameSource(sourceOf(entry), agentDir, sourceOf(config.managed[i]!)))) throw new Error("Duplicate managed package identity");
@@ -175,7 +196,7 @@ export function plan(config: Config, members: Member[], settings: SettingsManage
     if (sameSource(source, agentDir, rootSource) || loadout.external.slice(0, i).some(other => sameSource(source, agentDir, other))) throw new Error(`Duplicate/manager external identity: ${source}`);
   }
   for (const item of all) {
-    if (item.entry === rootEntry) continue;
+    if (item.entry === rootEntry || (item.scope === "project" && item.entry === override)) continue;
     const source = sourceOf(item.entry);
     const installed = host.getInstalledPath(source, item.scope);
     const conflict = installed ? bundledConflict(installed, root, members, config.incomplete?.includes(source)) : undefined;
@@ -208,7 +229,7 @@ export function plan(config: Config, members: Member[], settings: SettingsManage
   // A cached checkout alone does not establish that the requested ref/version was installed.
   // Reinstall newly claimed/restored declarations through Pi, even when cache files exist.
   const install = loadout.external.filter(source => config.incomplete?.includes(source) || !host.getInstalledPath(source, "user") || !current.some(entry => sameSource(sourceOf(entry), agentDir, source)));
-  return { packages, managed, install, changed: !equal(packages, current) };
+  return { packages, managed, install, changed: !equal(packages, current), projectExcluded };
 }
 
 /** Downloads precede declaration changes. The host has no cancellation API for install();

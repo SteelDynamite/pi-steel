@@ -222,6 +222,48 @@ async function exerciseHost(): Promise<void> {
       await checkState(session, loader, members.filter(member => ids.includes(member.id)).map(member => member.entry), active === "Everything", true, false, errors);
       assert(session.getActiveToolNames().includes("recall"), "shipped Git memory loads from exact-identity offline cache");
       assert.equal(JSON.parse(readFileSync(configPath, "utf8")).loadouts[active], undefined, "shipped definitions are not copied into user config");
+      if (active === "Everything") {
+        const globalBefore = readFileSync(settingsPath, "utf8");
+        const configBefore = readFileSync(configPath, "utf8");
+        const replacement = join(home, "replacement");
+        mkdirSync(replacement);
+        writeFileSync(join(replacement, "package.json"), JSON.stringify({ name: "local-replacement", pi: { extensions: ["index.ts"] } }));
+        writeFileSync(join(replacement, "index.ts"), 'export default function(pi) { pi.registerCommand("replacement-fixture", { description: "Independent replacement", handler: async () => {} }); }');
+        const projectPath = join(cwd, ".pi", "settings.json");
+        mkdirSync(dirname(projectPath), { recursive: true });
+        const project = JSON.stringify({ packages: [{
+          source: root, autoload: false, extensions: ["-extensions/pi-doc-manifests/index.ts"],
+          skills: ["!extensions/pi-doc-manifests/skills/**/*"],
+        }, replacement] });
+        writeFileSync(projectPath, project);
+        await session.reload();
+        await checkState(session, loader, members.filter(member => member.id !== "pi-doc-manifests").map(member => member.entry), false, true, false, errors);
+        assert(session.extensionRunner.getCommand("replacement-fixture"));
+        assert(!session.extensionRunner.getCommand("doc-manifests"));
+        assert(session.getActiveToolNames().includes("recall"));
+        assert.deepEqual(await session.extensionRunner.emitContext([]), []);
+        const beforeSync: number = reloads;
+        await session.prompt("/steel sync");
+        assert.equal(reloads, beforeSync, "project exclusions are not global drift");
+        await session.prompt("/steel status");
+        assert.match(notices.at(-1)!, /Project exclusions: pi-doc-manifests/);
+        assert.equal(readFileSync(projectPath, "utf8"), project);
+        assert.equal(readFileSync(settingsPath, "utf8"), globalBefore);
+        assert.equal(readFileSync(configPath, "utf8"), configBefore);
+        // Another project still loads the unmodified Everything selection.
+        const otherCwd = join(home, "other-project");
+        mkdirSync(otherCwd);
+        const otherLoader = new DefaultResourceLoader({ cwd: otherCwd, agentDir, settingsManager: SettingsManager.create(otherCwd, agentDir, { projectTrusted: true }) });
+        await otherLoader.reload();
+        assert(otherLoader.getExtensions().extensions.some(extension => extension.path === join(root, "extensions/pi-doc-manifests/index.ts")));
+        assert(otherLoader.getSkills().skills.some(skill => skill.name === "doc-manifests-designer"));
+        assert(!otherLoader.getExtensions().extensions.some(extension => extension.path.startsWith(replacement)));
+        rmSync(projectPath);
+        await session.reload();
+        await checkState(session, loader, members.map(member => member.entry), true, true, false, errors);
+        assert(!session.extensionRunner.getCommand("replacement-fixture"));
+        assert.equal(readFileSync(settingsPath, "utf8"), globalBefore);
+      }
     }
     const definitionsPath = join(root, "loadouts.json");
     const definitions = JSON.parse(readFileSync(definitionsPath, "utf8"));

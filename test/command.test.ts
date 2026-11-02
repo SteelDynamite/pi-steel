@@ -69,6 +69,12 @@ test("untrusted project npmCommand never executes, including status", async t =>
   const ctx = { cwd: dir, hasUI: true, ui: { notify: (message: string) => messages.push(message), confirm: async () => false }, reload: async () => {} } as unknown as ExtensionCommandContext;
   await handler("status", ctx);
   assert(!existsSync(marker), messages.join("\n"));
+  const project = JSON.parse(readFileSync(join(dir, ".pi", "settings.json"), "utf8"));
+  project.packages = [{ source: root, autoload: false, extensions: ["-extensions/pi-doc-manifests/index.ts"], skills: ["!extensions/pi-doc-manifests/skills/**/*"] }];
+  writeFileSync(join(dir, ".pi", "settings.json"), JSON.stringify(project));
+  await handler("status", ctx);
+  assert.match(messages.at(-1)!, /Project exclusions: pi-doc-manifests/);
+  assert(!existsSync(marker), "valid deltas must not enable project operational settings");
   // Project declarations still participate in collision checks without project operational settings.
   writeFileSync(join(dir, ".pi", "settings.json"), JSON.stringify({ packages: [root] }));
   await handler("status", ctx);
