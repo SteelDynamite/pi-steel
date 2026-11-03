@@ -1,13 +1,15 @@
-import type { ExtensionAPI, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { formatSpeed, streamDelta, TokenSpeedTracker } from "./src/token-speed.ts";
 
 export { formatSpeed, streamDelta, TokenSpeedTracker } from "./src/token-speed.ts";
 
 export default function (pi: ExtensionAPI) {
 	const tracker = new TokenSpeedTracker();
-	const setStatus = (ctx: { ui: Pick<ExtensionUIContext, "setStatus" | "theme"> }, speed: number | undefined) => {
+	const setStatus = (ctx: Pick<ExtensionContext, "ui" | "hasUI" | "mode">, speed: number | undefined) => {
+		if (!ctx.hasUI) return;
 		const text = formatSpeed(speed);
-		ctx.ui.setStatus("tokenSpeed", text === undefined ? undefined : ctx.ui.theme.fg("dim", text));
+		// RPC supports status text but does not initialize the terminal theme.
+		ctx.ui.setStatus("tokenSpeed", text !== undefined && ctx.mode === "tui" ? ctx.ui.theme.fg("dim", text) : text);
 	};
 
 	pi.on("agent_start", (_event, ctx) => {

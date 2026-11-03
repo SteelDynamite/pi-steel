@@ -14,7 +14,7 @@ pi install https://github.com/SteelDynamite/pi-token-speed.git
 
 ## Behavior
 
-- Publishes footer status key `tokenSpeed`.
+- Publishes status key `tokenSpeed`: dim footer text in TUI, plain text in RPC, no UI access in print/JSON modes. Only TUI initializes Pi's terminal theme.
 - Shows a live five-second rolling estimate after a 500 ms warm-up.
 - Estimates streamed text, thinking, and tool-call deltas as four characters per token.
 - Omits the first emitted chunk from the live estimate to avoid first-token bias.

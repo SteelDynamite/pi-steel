@@ -88,7 +88,7 @@ test("deltas include text, thinking, and tool calls only", () => {
 	assert.equal(formatSpeed(25), "25.0 tok/s");
 });
 
-test("extension publishes themed status and clears on a new agent run", () => {
+for (const mode of ["tui", "rpc", "print", "json"] as const) test(`extension status respects ${mode} mode and clears on a new agent run`, () => {
 	const handlers = new Map<string, (event: any, ctx: any) => void>();
 	const pi = {
 		on(name: string, handler: (event: any, ctx: any) => void) {
@@ -98,10 +98,16 @@ test("extension publishes themed status and clears on a new agent run", () => {
 	extension(pi);
 
 	const statuses: Array<{ key: string; text: string | undefined }> = [];
+	const hasUI = mode === "tui" || mode === "rpc";
 	const ctx = {
+		mode,
+		hasUI,
 		ui: {
 			setStatus: (key: string, text: string | undefined) => statuses.push({ key, text }),
-			theme: { fg: (color: string, text: string) => `${color}:${text}` },
+			get theme() {
+				assert.equal(mode, "tui", "headless modes must not access the terminal theme");
+				return { fg: (color: string, text: string) => `${color}:${text}` };
+			},
 		},
 	};
 	const originalNow = Date.now;
@@ -113,12 +119,20 @@ test("extension publishes themed status and clears on a new agent run", () => {
 		handlers.get("message_update")!({ assistantMessageEvent: { type: "text_delta", delta: "a".repeat(20) } }, ctx);
 		now = 1_000;
 		handlers.get("message_update")!({ assistantMessageEvent: { type: "text_delta", delta: "a".repeat(20) } }, ctx);
+		assert.deepEqual(statuses, hasUI ? [
+			{ key: "tokenSpeed", text: undefined },
+			{ key: "tokenSpeed", text: undefined },
+			{ key: "tokenSpeed", text: mode === "tui" ? "dim:5.0 tok/s" : "5.0 tok/s" },
+		] : []);
 		now = 10_000;
 		handlers.get("message_end")!({ message: { role: "assistant", usage: { output: 20 }, stopReason: "error" } }, ctx);
-		assert.deepEqual(statuses.at(-1), { key: "tokenSpeed", text: "dim:19.0 tok/s" });
+		assert.deepEqual(statuses.at(-1), hasUI
+			? { key: "tokenSpeed", text: mode === "tui" ? "dim:19.0 tok/s" : "19.0 tok/s" }
+			: undefined);
 
 		handlers.get("agent_start")!({}, ctx);
-		assert.deepEqual(statuses.at(-1), { key: "tokenSpeed", text: undefined });
+		assert.deepEqual(statuses.at(-1), hasUI ? { key: "tokenSpeed", text: undefined } : undefined);
+		if (!hasUI) assert.deepEqual(statuses, []);
 	} finally {
 		Date.now = originalNow;
 	}
