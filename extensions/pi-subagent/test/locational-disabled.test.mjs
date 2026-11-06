@@ -13,7 +13,7 @@ import { shouldAdvertiseLocationalAgents } from "../locational-manifest.ts";
 import { useFakePi } from "./fixtures/pi-host.mjs";
 
 const repo = fileURLToPath(new URL("..", import.meta.url));
-const keys = [ENABLE_LOCATIONAL_AGENTS_ENV, ADVERTISE_LOCATIONAL_AGENTS_ENV, CURRENT_LOCATIONAL_ROOT_ENV, LOCATIONAL_ANCESTOR_STACK_ENV, ORCHESTRATED_CHILD_ENV, "PI_CODING_AGENT_DIR", "PI_SUBAGENT_DEPTH"];
+const keys = ["HC_TERMINAL_ID", ENABLE_LOCATIONAL_AGENTS_ENV, ADVERTISE_LOCATIONAL_AGENTS_ENV, CURRENT_LOCATIONAL_ROOT_ENV, LOCATIONAL_ANCESTOR_STACK_ENV, ORCHESTRATED_CHILD_ENV, "PI_CODING_AGENT_DIR", "PI_SUBAGENT_DEPTH"];
 const original = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
 let root;
 beforeEach(() => {

@@ -2,7 +2,11 @@
 
 Read `README.md` for product behavior, installation, and validation commands. This checkout is not a locational-agent root. Keep `agents/*/SUBAGENTS.md` as behavioral definitions. Bundled discovery and exclusion use this module's `agents/` directory; do not add a `.agents/subagents` symlink.
 
-Keep delegation foreground-managed: each `subagent` call launches one isolated Pi child, shows progress, waits, and returns one result. Built-in `bash` owns shell commands and Pi owns concurrent sibling tool execution. Do not bundle or export slash-command prompt templates; behavioral definitions and internal delegation prompts remain part of the extension. Do not add detached jobs, background polling, or command execution to this extension. Preserve `exposure: "model-only"` for direct tool rendering and progress.
+Keep native delegation foreground-managed: each `subagent` call launches one isolated Pi child, shows progress, waits, and returns one result. Built-in `bash` owns shell commands and Pi owns concurrent sibling tool execution. Do not bundle or export slash-command prompt templates; behavioral definitions and internal delegation prompts remain part of the extension. Do not add detached jobs, background polling, or general command execution to this extension. Preserve `exposure: "model-only"` for direct tool rendering and progress.
+
+## Herdr handoff
+
+Keep hc detection and skill handoff process-local; never switch Steel settings. Check only `hc --skill`, with bounded time/output, before choosing registration. A failed check retains native delegation; suppress fallback notices in orchestrated children. Explicit locational opt-in retains native guards. Expose the bundled loader only through `resources_discover`, never unconditional package skills. Do not translate behavioral definitions or implicitly copy model/effort/speed into hc launches; the loader must preserve child-marker and agent-directory guidance. Test native/handoff reloads, missing hc, and owner exclusion with isolated homes.
 
 ## Locational opt-in
 

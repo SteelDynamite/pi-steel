@@ -22,7 +22,8 @@
     "extensions": [
       "./index.ts"
     ],
-    "prompts": []
+    "prompts": [],
+    "skills": []
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

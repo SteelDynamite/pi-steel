@@ -11,6 +11,7 @@ import subagentExtension from "../index.ts";
 import { getGuardedLocationalRoots } from "../locational-guard.ts";
 import { makeLocationalManifest } from "../locational-manifest.ts";
 
+delete process.env.HC_TERMINAL_ID;
 process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS = "1";
 
 const repo = fileURLToPath(new URL("..", import.meta.url));

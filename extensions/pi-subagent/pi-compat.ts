@@ -32,6 +32,7 @@ export interface ExtensionContext {
 
 export interface ExtensionAPI {
 	on(event: string, handler: (event: any, ctx: ExtensionContext) => unknown): void;
+	exec(command: string, args: string[], options?: { timeout?: number; maxBuffer?: number }): Promise<{ code: number; stdout: string; stderr: string; killed?: boolean; truncated?: boolean }>;
 	registerCommand(name: string, options: { description?: string; handler: (args: unknown, ctx: ExtensionContext) => unknown }): void;
 	registerTool(tool: any): void;
 	registerEntryRenderer<T = unknown>(customType: string, renderer: (entry: { data?: T }, options: { expanded: boolean }, theme: any) => unknown): void;

@@ -6,6 +6,7 @@ import { test } from "node:test";
 import subagentExtension from "../index.ts";
 import { SubagentParams } from "../schema.ts";
 
+delete process.env.HC_TERMINAL_ID;
 process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS = "1";
 
 function registerExtension() {

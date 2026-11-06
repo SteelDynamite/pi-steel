@@ -78,9 +78,17 @@ Run `/reload` or restart Pi after editing project settings. `/steel status` list
 
 An unrelated replacement can be added separately through Pi's normal resource settings. Existing bundled-name/source and duplicate-path collision checks still apply; this is exclusion support, not permission to load standalone copies of bundled modules. Disabling doc manifests does not delete project-owned creator skills or prior conversation text.
 
+### Herdr (`hc`)
+
+Keep `Everything`, `ChatBot`, or a custom loadout containing `pi-subagent`. Inside [Herdr](https://herdr.dev/core/), `pi-subagent` detects `HC_TERMINAL_ID` and checks `hc --skill`. If available, it exposes its bundled `/skill:herdr-delegation` loader instead of the native `subagent` tool, settings command, and behavioral-agent advertising. The loader reads the installed binary's manual; no separate Herdr extension, skill package, or loadout is required.
+
+Outside Herdr, or if the check fails, native delegation remains available. A failed check shows one warning per parent runtime with installation/PATH and reload instructions. Explicitly enabled locational guards keep native delegation even inside Herdr. Detection is process-local: simultaneous Herdr and ordinary Pi sessions share the same loadout without changing each other's settings. `/reload` rechecks availability; no polling or automatic installation occurs.
+
+Herdr handoff does not translate behavioral definitions, preserve native subagent lifecycle guarantees, or automatically copy the parent's model, effort, or speed. Herdr templates or the launched agent's defaults determine those settings. The loader requires Pi helpers to receive `PI_ORCHESTRATED_CHILD=1` and the intended `PI_CODING_AGENT_DIR` explicitly, preserving supervisor suppression and resource selection without assuming the daemon inherits the calling shell's environment. See [pi-subagent's Herdr behavior](extensions/pi-subagent/README.md#herdr-handoff) for limits.
+
 ### Observational memory
 
-Both shipped loadouts include upstream [pi-observational-memory](https://github.com/elpapi42/pi-observational-memory), tracking its unpinned Git default branch. It remains an external package, not a vendored module or fork. [presets/memory/steel.json](presets/memory/steel.json) is a legacy compatibility snapshot, not the recommended shipped selection; use `Everything` or `ChatBot` instead.
+All shipped loadouts include upstream [pi-observational-memory](https://github.com/elpapi42/pi-observational-memory), tracking its unpinned Git default branch. It remains an external package, not a vendored module or fork. [presets/memory/steel.json](presets/memory/steel.json) is a legacy compatibility snapshot, not the recommended shipped selection; use `Everything` or `ChatBot` instead.
 
 [presets/memory/settings.json](presets/memory/settings.json) supplies optional configuration overrides. Steel does not merge them automatically:
 

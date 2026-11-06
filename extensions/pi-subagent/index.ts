@@ -1,4 +1,6 @@
+import { existsSync } from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
 	discoverAgents,
 	getAgentInstructionsFileName,
@@ -47,7 +49,35 @@ export type SubagentToolParams = {
 	includeLocationalAgents?: boolean;
 };
 
-export default function (pi: ExtensionAPI) {
+export default async function (pi: ExtensionAPI) {
+	if (process.env.HC_TERMINAL_ID?.trim()) {
+		const skillPath = fileURLToPath(new URL("./skills/herdr-delegation/SKILL.md", import.meta.url));
+		let warning = "Herdr detected, but hc --skill is unavailable. Keeping native subagents. Install/update hc (https://herdr.dev/core/), ensure it is on Pi's PATH, then /reload.";
+		if (locationalAgentsEnabled()) {
+			// An automatic handoff must not silently remove explicitly enabled guards.
+			warning = "Herdr detected; keeping native subagents because PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS=1 enables locational guards.";
+		} else if (!existsSync(skillPath)) {
+			warning = "Herdr detected, but the bundled herdr-delegation skill is missing. Keeping native subagents. Reinstall/update the package containing pi-subagent, then /reload.";
+		} else {
+			try {
+				// Reading the installed manual neither starts a core nor inspects other terminals.
+				// Bound this startup check; no retries or background supervision.
+				const result = await pi.exec("hc", ["--skill"], { timeout: 3000, maxBuffer: 256 * 1024 });
+				if (result.code === 0 && !result.killed && !result.truncated && result.stdout.includes("herdr-core")) {
+					pi.on("resources_discover", () => ({ skillPaths: [skillPath] }));
+					return;
+				}
+			} catch { /* Missing or unusable hc retains the normal delegation path. */ }
+		}
+		if (process.env.PI_ORCHESTRATED_CHILD !== "1") {
+			let warned = false;
+			pi.on("session_start", (_event, ctx) => {
+				if (warned || !ctx.hasUI) return;
+				warned = true;
+				ctx.ui.notify(warning, "warning");
+			});
+		}
+	}
 	registerLocationalManifestRenderer(pi);
 	pi.on("session_start", async (_event, ctx) => {
 		restoreSubagentState(ctx);
