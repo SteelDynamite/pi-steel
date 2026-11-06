@@ -6,7 +6,7 @@ Keep native delegation foreground-managed: each `subagent` call launches one iso
 
 ## Herdr handoff
 
-Keep hc detection and skill handoff process-local; never switch Steel settings. Check only `hc --skill`, with bounded time/output, before choosing registration. A failed check retains native delegation; suppress fallback notices in orchestrated children. Explicit locational opt-in retains native guards. Expose the bundled loader only through `resources_discover`, never unconditional package skills. Do not translate behavioral definitions or implicitly copy model/effort/speed into hc launches; the loader must preserve child-marker and agent-directory guidance. Test native/handoff reloads, missing hc, and owner exclusion with isolated homes.
+Keep hc detection and handoff process-local; never switch Steel settings. Check only `hc --skill`, with bounded time/output, before choosing registration. A failed check retains native delegation; suppress fallback notices in orchestrated children. Explicit locational opt-in retains native guards. Reuse the startup manual in a named `before_agent_start` prompt section with the bundled guide and only the known launch-context fields. Never advertise the preloaded guide as a skill, rerun discovery per model turn, replace the whole system prompt, or dump the general process environment. Do not translate behavioral definitions or implicitly copy model/effort/speed into hc launches; the guide must preserve child-marker and agent-directory guidance. Test native/handoff reloads, missing hc, and owner exclusion with isolated homes.
 
 ## Locational opt-in
 

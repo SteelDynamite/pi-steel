@@ -8,7 +8,7 @@ test("package exports no prompt templates and retains behavioral delegation", ()
 	const manifest = JSON.parse(readFileSync(new URL("package.json", root), "utf8"));
 	assert.equal(manifest.name, "pi-subagent");
 	assert.deepEqual(manifest.pi.prompts, []);
-	assert.deepEqual(manifest.pi.skills, [], "Herdr skill is only exposed dynamically by its owner");
+	assert.deepEqual(manifest.pi.skills, [], "Herdr guidance is preloaded by its owner, not advertised as a skill");
 	assert(existsSync(new URL("skills/herdr-delegation/SKILL.md", root)));
 	assert.equal(existsSync(new URL("prompts/", root)), false);
 	assert.deepEqual(readdirSync(new URL("agents/", root)).sort(), ["reviewer", "scout", "worker"]);

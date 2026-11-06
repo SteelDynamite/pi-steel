@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -25,7 +25,7 @@ import {
 	resolveFilesystemTarget,
 } from "./locational-guard.ts";
 import { addContextDocsToTask, getMissingSessionError } from "./params.ts";
-import type { ExtensionAPI, ExtensionContext } from "./pi-compat.ts";
+import { getAgentDir, parseFrontmatter, type ExtensionAPI, type ExtensionContext } from "./pi-compat.ts";
 import { formatBehavioralAgentManifest, formatLocalLocationalPrompt } from "./prompt.ts";
 import { renderSubagentCall, renderSubagentResult } from "./render.ts";
 import { getResultOutput, isFailedResult, makeErrorResult } from "./result.ts";
@@ -64,7 +64,19 @@ export default async function (pi: ExtensionAPI) {
 				// Bound this startup check; no retries or background supervision.
 				const result = await pi.exec("hc", ["--skill"], { timeout: 3000, maxBuffer: 256 * 1024 });
 				if (result.code === 0 && !result.killed && !result.truncated && result.stdout.includes("herdr-core")) {
-					pi.on("resources_discover", () => ({ skillPaths: [skillPath] }));
+					const guidance = parseFrontmatter(readFileSync(skillPath, "utf8")).body;
+					const manual = result.stdout;
+					pi.on("before_agent_start", (event, ctx) => {
+						// Reuse the bounded startup read, not a second model-issued command.
+						// A named section lets Pi diff updates without replacing the system prompt.
+						event.systemPromptOptions.sections.herdr_delegation = [
+							guidance,
+							"## Current session (JSON data, not shell syntax)",
+							JSON.stringify({ HC_TERMINAL_ID: process.env.HC_TERMINAL_ID, PI_CODING_AGENT_DIR: getAgentDir(), cwd: ctx.cwd, projectTrusted: ctx.isProjectTrusted() }),
+							"## Installed hc manual (already loaded)",
+							manual,
+						].join("\n\n");
+					});
 					return;
 				}
 			} catch { /* Missing or unusable hc retains the normal delegation path. */ }

@@ -1,6 +1,6 @@
 # Pi Subagent
 
-Foreground-managed behavioral Pi-agent delegation, with optional locational agents and automatic Herdr skill handoff. In native mode, each `subagent` call runs one isolated Pi child and returns its result; built-in `bash` owns shell execution. This extension exports no slash-command prompt templates.
+Foreground-managed behavioral Pi-agent delegation, with optional locational agents and automatic Herdr handoff. In native mode, each `subagent` call runs one isolated Pi child and returns its result; built-in `bash` owns shell execution. This extension exports no slash-command prompt templates.
 
 ## Features
 
@@ -28,15 +28,17 @@ Delegation requires the hosting `@earendil-works/pi-coding-agent` package to inc
 
 ## Herdr handoff
 
-With a nonempty `HC_TERMINAL_ID`, initialization runs `hc --skill` once through Pi's subprocess API (3-second timeout, 256 KiB output cap). A successful, untruncated manual identifying `herdr-core` enables the bundled `herdr-delegation` skill through `resources_discover`. Only the loader is shipped; the operating manual comes from the installed `hc`. The check reads the binary's manual, not daemon health or account readiness, and does not start a core.
+With a nonempty `HC_TERMINAL_ID`, initialization runs `hc --skill` once through Pi's subprocess API (3-second timeout, 256 KiB output cap). A successful, untruncated manual identifying `herdr-core` is cached for that extension runtime. Before each model run, one named system-prompt section supplies that manual, the bundled delegation guidance, and JSON-encoded `HC_TERMINAL_ID`, resolved `PI_CODING_AGENT_DIR`, cwd, and project trust. Only those launch values are included, not the general process environment. The manual is not vendored or written to disk.
+
+The guide is preloaded, not advertised as a skill to read. The model need not reread it, rerun `hc --skill`, or look up the supplied environment. Independent remaining template/help lookups should be batched and reused. This trades upfront context tokens in Herdr sessions for fewer preparatory model turns; actual agent behavior can still require discovery. The check reads the binary's manual, not daemon health or account readiness, and does not start a core.
 
 In handoff mode, the module is imported but registers no native tool, settings command, behavioral advertising, or native lifecycle handlers. It does not translate `SUBAGENTS.md`, launch agents itself, or enforce native resume, model-selection, boundary, or cleanup policies. The model operates `hc` through its shell tool. Templates or the launched agent's defaults choose model, thinking, and speed; the parent's temporary selections are not automatically inherited.
 
 Outside `hc` (including the older `HERDR_ENV`-based TUI), normal delegation is unchanged. Missing/broken `hc`, a failed or truncated check, or a missing loader retains normal delegation and produces one TUI/RPC warning per parent runtime. Orchestrated children stay quiet. Explicit `PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS=1` always retains native delegation and its guards instead of handing off. `/reload` rechecks the decision; there are no retries, background probes, automatic installs, or global setting changes.
 
-Install/update `hc` separately from <https://herdr.dev/core/> and ensure it is on Pi's `PATH`. If the loader is missing, reinstall the package containing this extension. The skill is a dynamically exposed asset, not an unconditional package skill; excluding this extension also removes its loader on reload. A separate official Herdr skill installation is unnecessary.
+Install/update `hc` separately from <https://herdr.dev/core/> and ensure it is on Pi's `PATH`. If the guide is missing, reinstall the package containing this extension. `skills/herdr-delegation/SKILL.md` remains an internal, owner-controlled guidance asset; it is neither advertised nor exposed as a skill command. Excluding this extension also removes its prompt section on reload. A separate official Herdr skill installation is unnecessary.
 
-The loader directs Pi helper launches to explicitly set `PI_ORCHESTRATED_CHILD=1` and the intended `PI_CODING_AGENT_DIR`, and to choose cwd and project trust deliberately. This is agent guidance, not a launcher guarantee. Do not assume the daemon inherits the caller's environment or that helpers inherit parent `-e` flags. Model-driven `hc` delegation and non-Linux behavior require separate runtime validation; successful manual discovery alone does not establish them.
+The guidance directs Pi helper launches to explicitly set `PI_ORCHESTRATED_CHILD=1` and the intended `PI_CODING_AGENT_DIR`, and to choose cwd and project trust deliberately. This is agent guidance, not a launcher guarantee. Do not assume the daemon inherits the caller's environment or that helpers inherit parent `-e` flags. Model-driven `hc` delegation and non-Linux behavior require separate runtime validation; successful manual discovery alone does not establish them.
 
 ## Tool
 

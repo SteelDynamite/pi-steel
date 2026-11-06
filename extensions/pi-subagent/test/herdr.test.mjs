@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
 import { beforeEach, test } from "node:test";
 import subagentExtension from "../index.ts";
 
@@ -47,23 +46,41 @@ for (const id of [undefined, "", "  "]) test(`no hc identity (${JSON.stringify(i
 	assert.deepEqual(result.notices, []);
 });
 
-for (const child of [false, true]) test(`hc handoff registers only its skill (child=${child})`, async () => {
+for (const child of [false, true]) test(`hc handoff preloads guidance without discovery turns (child=${child})`, async t => {
 	process.env.HC_TERMINAL_ID = "t7";
 	if (child) process.env.PI_ORCHESTRATED_CHILD = "1";
+	const oldDir = process.env.PI_CODING_AGENT_DIR;
+	process.env.PI_CODING_AGENT_DIR = '/tmp/agent "quoted"\npath';
+	process.env.HERDR_TEST_SECRET = "must-not-reach-the-prompt";
+	t.after(() => {
+		if (oldDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = oldDir;
+		delete process.env.HERDR_TEST_SECRET;
+	});
 	const result = await register();
-	assert.deepEqual(result.probes, [["hc", ["--skill"], { timeout: 3000, maxBuffer: 256 * 1024 }]]);
 	assert.deepEqual(result.tools, []);
 	assert.equal(result.commands.size, 0);
-	assert.deepEqual([...result.handlers.keys()], ["resources_discover"]);
-	const resources = result.handlers.get("resources_discover")[0]();
-	assert.equal(resources.skillPaths.length, 1);
-	assert(existsSync(resources.skillPaths[0]));
-	const skill = readFileSync(resources.skillPaths[0], "utf8");
-	assert.match(skill, /name: herdr-delegation/);
-	assert.match(skill, /hc --skill/);
-	assert.match(skill, /PI_ORCHESTRATED_CHILD=1/);
-	assert.match(skill, /PI_CODING_AGENT_DIR/);
-	assert.match(skill, /not automatically inherited/);
+	assert.deepEqual([...result.handlers.keys()], ["before_agent_start"]);
+	const event = { systemPrompt: "untouched", systemPromptOptions: { sections: { other: "preserved" } } };
+	const before = result.handlers.get("before_agent_start")[0];
+	assert.equal(before(event, result.ctx), undefined, "do not replace the complete system prompt");
+	const section = event.systemPromptOptions.sections.herdr_delegation;
+	assert.equal(event.systemPrompt, "untouched");
+	assert.equal(event.systemPromptOptions.sections.other, "preserved");
+	assert.match(section, /PI_ORCHESTRATED_CHILD=1/);
+	assert.match(section, /not automatically inherited/);
+	assert.match(section, /batch independent lookups/);
+	assert.match(section, /do not reread this guide/);
+	assert.match(section, /# hc manual \(herdr-core\)/);
+	assert(section.includes(JSON.stringify({ HC_TERMINAL_ID: "t7", PI_CODING_AGENT_DIR: process.env.PI_CODING_AGENT_DIR, cwd: result.ctx.cwd, projectTrusted: false })));
+	assert.doesNotMatch(section, /must-not-reach-the-prompt|name: herdr-delegation/);
+	before(event, result.ctx);
+	assert.equal(event.systemPromptOptions.sections.herdr_delegation, section, "repeated runs do not append duplicate guidance");
+	result.ctx.cwd = '/tmp/project "quoted"\npath';
+	result.ctx.isProjectTrusted = () => true;
+	before(event, result.ctx);
+	assert(event.systemPromptOptions.sections.herdr_delegation.includes(JSON.stringify({ HC_TERMINAL_ID: "t7", PI_CODING_AGENT_DIR: process.env.PI_CODING_AGENT_DIR, cwd: result.ctx.cwd, projectTrusted: true })));
+	assert.deepEqual(result.probes, [["hc", ["--skill"], { timeout: 3000, maxBuffer: 256 * 1024 }]], "one bounded startup probe, no per-turn subprocess");
 	assert.deepEqual(result.notices, []);
 });
 
