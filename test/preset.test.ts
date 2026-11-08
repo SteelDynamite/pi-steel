@@ -23,7 +23,10 @@ test("shipped selections default to Everything without persisting definitions", 
   const config = readConfig(path, manifest.extensions);
   assert.deepEqual(config, { version: 1, active: "Everything", loadouts: {}, managed: [] });
   assert.equal(existsSync(path), false);
-  assert.deepEqual(select(config, manifest.extensions), select(parseConfig(preset, manifest.extensions), manifest.extensions));
+  assert.deepEqual(select(config, manifest.extensions), {
+    bundled: manifest.extensions.map((member: { id: string }) => member.id),
+    external: ["git:https://github.com/elpapi42/pi-observational-memory.git"],
+  });
   config.active = "ChatBot";
   assert.deepEqual(select(config, manifest.extensions), {
     bundled: ["pi-system-reminders", "pi-subagent"],
@@ -68,11 +71,11 @@ test("shipped definitions refresh from the module's package, not cwd or steel.js
   assert.throws(() => manager.select(config, members), /invalid shipped loadout/);
 });
 
-test("memory preset selects every bundled member and follows upstream's default branch", () => {
+test("legacy memory preset keeps its selection and follows upstream's default branch", () => {
   const config = parseConfig(preset, manifest.extensions);
   assert.equal(config.active, "memory");
   assert.deepEqual(config.managed, []);
-  assert.deepEqual(select(config, manifest.extensions).bundled, manifest.extensions.map((member: { id: string }) => member.id));
+  assert.deepEqual(select(config, manifest.extensions).bundled, manifest.extensions.filter((member: { id: string }) => member.id !== "pi-paseo").map((member: { id: string }) => member.id));
   const source = "git:https://github.com/elpapi42/pi-observational-memory.git";
   assert.deepEqual(select(config, manifest.extensions).external, [source]);
   const pkg = JSON.parse(readFileSync(join(sourceRoot, "package.json"), "utf8"));

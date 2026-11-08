@@ -16,7 +16,8 @@
         "pi-system-reminders",
         "pi-token-speed",
         "pi-transcript",
-        "pi-todo"
+        "pi-todo",
+        "pi-paseo"
       ],
       "external": ["git:https://github.com/elpapi42/pi-observational-memory.git"]
     },

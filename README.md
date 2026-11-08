@@ -4,13 +4,13 @@ A personal Pi extension collection and loadout manager, distributed as one packa
 
 ## Status
 
-All 13 modules are imported. Checks cover the source package, installed npm tarball, real Pi reloads, terminal UI coexistence, subagent children, and isolated live-provider smoke tests. A recovery-backed local cutover of the preceding build has also passed; that installation has not yet been switched to the shipped loadouts and automatic synchronization described below. This is a development build, not a tagged release; other environments require their own installation and validation.
+Bundled modules are listed in [extensions.manifest.json](extensions.manifest.json). Automated checks cover source and installed-tarball loading, Pi reloads, terminal UI coexistence, and subagent children using isolated local providers. Coverage is not certification of every renderer or terminal. Earlier live-provider and local-cutover checks do not validate this build. This is a development build, not a tagged release; other environments require their own installation and validation.
 
 ## Loadouts
 
 Exactly one named loadout is selected:
 
-- `Everything` (default): all 13 bundled extensions plus external upstream observational memory.
+- `Everything` (default): all bundled extensions plus external upstream observational memory.
 - `ChatBot`: system reminders, subagent, and external upstream observational memory.
 - Legacy `full` (all bundled extensions), `minimal` (manager only), and custom loadouts remain supported.
 
@@ -77,6 +77,12 @@ Only one Steel delta is allowed. Use exact `-<entry>` exclusions from [extension
 Run `/reload` or restart Pi after editing project settings. `/steel status` lists configured project exclusions; `/steel sync` preserves them without changing the global selection. Other projects remain unaffected. Children use the exclusions when running in the same working directory with project trust granted; a one-run parent `--approve` does not grant trust to children. Remove the delta and reload to restore the global selection.
 
 An unrelated replacement can be added separately through Pi's normal resource settings. Existing bundled-name/source and duplicate-path collision checks still apply; this is exclusion support, not permission to load standalone copies of bundled modules. Disabling doc manifests does not delete project-owned creator skills or prior conversation text.
+
+### Paseo
+
+`Everything` includes [pi-paseo](extensions/pi-paseo/README.md): automatic terminal activity and waiting-for-input reporting inside Paseo, without duplicating its native Pi chat integration. Outside Paseo and in orchestrated children, reporting is inactive.
+
+Paseo control tools default **off**. Use `/paseo` or `/paseo tools on|off`; the global setting lives in `<agent-dir>/paseo.json`. This controls only `pi-paseo`'s own tool, leaving Paseo-injected tools untouched. Controls use the existing Paseo CLI and require one unambiguous inherited `PASEO_HOME` or `PASEO_HOST`; the extension does not read credentials or edit Paseo settings. See the module README for commands, notification limits, and validation boundaries.
 
 ### Herdr (`hc`)
 

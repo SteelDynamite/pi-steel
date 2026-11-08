@@ -145,7 +145,7 @@ async function exerciseHost(): Promise<void> {
     assert.deepEqual(await session.extensionRunner.emitContext([]), []);
     reloads = 0;
     const members = JSON.parse(readFileSync(join(root, "extensions.manifest.json"), "utf8")).extensions as { id: string; entry: string }[];
-    assert.equal(members.length, 13);
+    assert(members.some(member => member.id === "pi-paseo" && member.entry === "extensions/pi-paseo/index.ts"));
     await checkState(session, loader, members.map(member => member.entry), true, true, false, errors);
     assert.deepEqual(loader.getAgentsFiles().agentsFiles.filter(file => file.path === join(cwd, "AGENTS.md")).map(file => file.content), [readFileSync(join(sourceRoot, "AGENTS.md"), "utf8")]);
     const freshEntries = session.sessionManager.getEntries();
@@ -196,7 +196,7 @@ async function exerciseHost(): Promise<void> {
     for (const active of ["memory", "minimal", "memory"]) {
       await session.prompt(`/steel use ${active}`);
       const enabled = active === "memory";
-      await checkState(session, loader, enabled ? members.map(member => member.entry) : [], enabled, enabled, false, errors);
+      await checkState(session, loader, enabled ? members.filter(member => memoryPreset.loadouts.memory.bundled.includes(member.id)).map(member => member.entry) : [], enabled, enabled, false, errors);
       assert.equal(!!session.extensionRunner.getCommand("om:status"), enabled);
       assert.equal(!!session.extensionRunner.getCommand("om:view"), enabled);
       assert.equal(session.getActiveToolNames().includes("recall"), enabled);

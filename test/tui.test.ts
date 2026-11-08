@@ -13,7 +13,7 @@ const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 const plain = (value: string) => value.replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "").replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-test("real TUI: all 13 modules, local model, footer/editor/widgets, minimal → full reload", { timeout: 90_000 }, async (t) => {
+test("real TUI: all bundled modules, local model, footer/editor/widgets, minimal → full reload", { timeout: 90_000 }, async (t) => {
   if (!["linux", "darwin"].includes(process.platform)) return t.skip("requires a POSIX script PTY");
   const probeArgs = process.platform === "darwin"
     ? ["-q", "/dev/null", "sh", "-c", "test -t 0 && test -t 1"]
@@ -41,7 +41,7 @@ test("real TUI: all 13 modules, local model, footer/editor/widgets, minimal → 
       theme: "dark", compaction: { enabled: false }, retry: { enabled: false } }));
     writeFileSync(join(agentDir, "steel.json"), JSON.stringify({ version: 1, active: "full", loadouts: {}, managed: [] }));
     const members = JSON.parse(readFileSync(join(root, "extensions.manifest.json"), "utf8")).extensions as { id: string; entry: string }[];
-    assert.equal(members.length, 13);
+    assert(members.some(member => member.id === "pi-paseo" && member.entry === "extensions/pi-paseo/index.ts"));
     const reportPath = join(home, "report.jsonl");
     const networkPath = join(home, "network-attempts");
     const hostRoot = getPackageDir();

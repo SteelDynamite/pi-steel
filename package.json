@@ -44,7 +44,8 @@
       "extensions/pi-system-reminders/index.ts",
       "extensions/pi-token-speed/index.ts",
       "extensions/pi-transcript/index.ts",
-      "extensions/pi-todo/index.ts"
+      "extensions/pi-todo/index.ts",
+      "extensions/pi-paseo/index.ts"
     ],
     "skills": [
       "extensions/pi-doc-manifests/skills"

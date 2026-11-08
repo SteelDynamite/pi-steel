@@ -29,7 +29,8 @@
     "pi-system-reminders": { "localChanges": ["Deleted root SUBAGENTS.md; imported replacement AGENTS.md"], "license": "MIT", "omittedWorkflows": [".github/workflows/ci.yml", ".github/workflows/release.yml"] },
     "pi-todo": { "localChanges": ["Deleted root SUBAGENTS.md; imported replacement AGENTS.md"], "license": "MIT" },
     "pi-token-speed": { "localChanges": [], "license": "MIT" },
-    "pi-transcript": { "localChanges": [], "license": "MIT" }
+    "pi-transcript": { "localChanges": [], "license": "MIT" },
+    "pi-paseo": { "origin": "Native pi-steel module; revision native denotes repository-owned source, not an imported snapshot.", "license": "MIT", "integrationContract": "https://github.com/getpaseo/paseo/tree/v0.15.3", "localChanges": [] }
   },
   "extensions": [
     { "id": "pi-answer", "source": "https://github.com/SteelDynamite/pi-answer.git", "revision": "21b8d046a3c6e48995fa0e67b6a6dc6817dd175a", "entry": "extensions/pi-answer/index.ts" },
@@ -44,6 +45,7 @@
     { "id": "pi-system-reminders", "source": "https://github.com/SteelDynamite/pi-system-reminders.git", "revision": "0b81f7c7c1afb1c68189a1c55c5a9bd36536b517", "entry": "extensions/pi-system-reminders/index.ts" },
     { "id": "pi-token-speed", "source": "https://github.com/SteelDynamite/pi-token-speed.git", "revision": "3c7dd24abd010ac7fe3ebbf31bd3dac52bcf3ac2", "entry": "extensions/pi-token-speed/index.ts" },
     { "id": "pi-transcript", "source": "https://github.com/SteelDynamite/pi-transcript.git", "revision": "10a5ed22c340c9ebd55413e2d3f966105f3a76fa", "entry": "extensions/pi-transcript/index.ts" },
-    { "id": "pi-todo", "source": "https://github.com/SteelDynamite/pi-todo.git", "revision": "c21133b39329dd7aa81df0db6db36c580b9b0061", "entry": "extensions/pi-todo/index.ts" }
+    { "id": "pi-todo", "source": "https://github.com/SteelDynamite/pi-todo.git", "revision": "c21133b39329dd7aa81df0db6db36c580b9b0061", "entry": "extensions/pi-todo/index.ts" },
+    { "id": "pi-paseo", "source": "https://github.com/SteelDynamite/pi-steel.git", "revision": "native", "entry": "extensions/pi-paseo/index.ts" }
   ]
 }

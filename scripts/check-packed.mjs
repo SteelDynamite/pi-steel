@@ -14,7 +14,7 @@ try {
   for (const name of ['pi-ai', 'pi-agent-core', 'pi-coding-agent', 'pi-tui']) {
     assert(!existsSync(join(sandbox, 'node_modules', '@earendil-works', name)), `Host peer was installed: ${name}`);
   }
-  execFileSync(process.execPath, ['--import', 'tsx', '--test', 'test/host.test.ts', 'test/child.test.ts', 'test/tui.test.ts', 'test/preset.test.ts', 'test/herdr.test.ts'], {
+  execFileSync(process.execPath, ['--import', 'tsx', '--test', 'test/host.test.ts', 'test/child.test.ts', 'test/tui.test.ts', 'test/preset.test.ts', 'test/herdr.test.ts', 'test/paseo.test.ts'], {
     cwd: root, stdio: 'inherit', env: { ...process.env, STEEL_TEST_PACKAGE_ROOT: join(sandbox, 'node_modules', 'pi-steel') },
   });
 } finally {
