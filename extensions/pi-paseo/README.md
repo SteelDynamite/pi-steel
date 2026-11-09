@@ -39,6 +39,8 @@ The setting governs **only `paseo_control`**. Tools injected by Paseo or another
 
 When enabled and a Paseo terminal/agent marker is present, `paseo_control` executes the existing CLI without a shell. Requires Paseo on `PATH`, or Paseo's absolute `PASEO_HOOK_CLI` executable, and **exactly one** inherited `PASEO_HOME` or `PASEO_HOST`. Missing or ambiguous targets fail rather than guessing which daemon owns this session. Resolve launch-environment targeting before enabling tools; do not put passwords in prompts.
 
+On Windows, an absolute `PASEO_HOOK_CLI` ending in `resources\bin\paseo.cmd` uses the bundled `Paseo.exe` directly with Paseo's Node entrypoint runner. The extension checks that the wrapper, executable, runner, and `app.asar` are files, then mirrors the wrapper's `ELECTRON_RUN_AS_NODE`, `PASEO_NODE_ENV`, `PASEO_DESKTOP_MANAGED`, and `PASEO_CLI` values. Inherited targeting, authentication, and caller identity remain intact. It never executes or parses batch commands and rejects other `.cmd`/`.bat` layouts. These are layout checks, not signature verification; the inherited installation must be trusted. A native executable remains supported. A batch-only Windows `PATH` installation needs the explicit bundled wrapper path; there is no shell fallback or installation search.
+
 Paseo manages authentication using its normal environment and credential files. The extension never reads or copies those credentials. It does not install/start/restart a daemon or modify daemon settings. Paseo's CLI may create its own client identity during normal connection setup.
 
 Each call requires `command` and exactly the fields listed below; omit irrelevant fields.
@@ -58,9 +60,11 @@ Each call requires `command` and exactly the fields listed below; omit irrelevan
 | `terminal send-keys` | `terminalId`, `keys`, `literal` | Send literal strings or interpreted key tokens such as `Enter`. |
 | `terminal kill` | `terminalId` | Terminate a terminal. |
 
-Use full IDs from list results: agents/terminals use UUIDs; workspaces use `wks_` followed by 16 hexadecimal digits. No fuzzy names, prefixes, bulk stop, arbitrary flags, or model-selected daemon target. Explicit workspace IDs avoid ambiguity when workspaces share a directory.
+Use full IDs from list results: agents/terminals use UUIDs; workspaces accept `wks_` followed by 16 hexadecimal digits or absolute path-shaped IDs (POSIX, Windows drive paths, or UNC). Copy workspace IDs unchanged, including case and separators; do not substitute the workspace directory for a different returned ID. No fuzzy names, prefixes, bulk stop, arbitrary flags, or model-selected daemon target. Explicit workspace IDs avoid ambiguity when workspaces share a directory.
 
 Calls have a 30-second deadline and 1 MiB capture cap **per stream**; displayed output is limited to 50 KiB/2000 lines. Discarded output is not saved. Truncated output can be incomplete JSON. Known environment secrets and credential-bearing URLs are redacted, but terminal output and agent details can contain other sensitive data; enabling control permits that data to enter Pi's conversation.
+
+Launch failures report safe `code`, numeric `errno`, and syscall operation fields when available, including synchronous Windows spawn errors. Error messages, executable paths, and invocation arguments are omitted; normal CLI output still follows the redaction and truncation rules above.
 
 Canceling a tool call, turning tools off, or exiting Pi kills the CLI request—not the daemon-owned work already submitted. Failed/timed-out mutations may have succeeded remotely: inspect before deciding what to do; never blindly retry. `run` and `send` receipts are not completion results. No background result watcher or automatic continuation is installed.
 
@@ -81,4 +85,4 @@ The initial tool intentionally excludes schedules, browser automation, plugin/co
 
 ## Validation
 
-From this directory, `npm run check` runs typechecking and local HTTP/subprocess tests. Root `test/paseo.test.ts` exercises actual Pi lifecycle, dialogs, toggles, reloads, and child/native boundaries in isolated homes; the packed suite repeats it against the installed tarball. No real Paseo daemon or live model provider is used. Desktop/mobile clients, OS notifications, Windows/macOS, and a real Paseo deployment require separate validation; fake CLI tests are POSIX-based.
+From this directory, `npm run check` runs typechecking and local HTTP/subprocess tests. Root `test/paseo.test.ts` exercises actual Pi lifecycle, dialogs, toggles, reloads, and child/native boundaries in isolated homes; the packed suite repeats it against the installed tarball. No real Paseo daemon or live model provider is used. Windows launch-contract tests run on every OS with mocked filesystem/process boundaries. Subprocess tests use a POSIX executable wrapper on POSIX and a copied Node executable in a synthetic Paseo layout on Windows; they exercise argument preservation, cancellation, and capture limits without a daemon. Run this module's `npm run check` on Windows to verify native process behavior. The synthetic layout does not verify Electron's ASAR loading. Desktop/mobile clients, OS notifications, real Electron/ASAR launches, and a real Paseo deployment require separate validation.

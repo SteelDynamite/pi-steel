@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, chmod, rm, readFile } from "node:fs/promises";
+import { mkdtemp, writeFile, chmod, rm, readFile, mkdir, copyFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test, type TestContext } from "node:test";
 import { controlSchema, executeControl, type ControlInput } from "../control.js";
 
@@ -13,9 +13,12 @@ const text = (result: Awaited<ReturnType<typeof executeControl>>) => result.cont
 async function fixture(t: TestContext, mode = "argv") {
   const cwd = await mkdtemp(join(tmpdir(), "paseo-control-"));
   t.after(() => rm(cwd, { recursive: true, force: true }));
-  const executable = join(cwd, "fake paseo");
-  const script = join(cwd, "fake.cjs");
+  const windows = process.platform === "win32";
+  const executable = windows ? join(cwd, "resources", "bin", "paseo.cmd") : join(cwd, "fake paseo");
+  const script = windows ? join(cwd, "resources", "app.asar.unpacked", "dist", "daemon", "node-entrypoint-runner.js") : join(cwd, "fake.cjs");
+  await mkdir(dirname(script), { recursive: true });
   await writeFile(script, `
+${windows ? "process.argv.splice(2, 2); // Remove node-script and the ASAR entry." : ""}
 const fs = require('node:fs');
 fs.appendFileSync('calls', '1');
 process.stdin.resume();
@@ -28,9 +31,17 @@ process.stdin.on('end', () => {
   if (process.env.MODE === 'hang') { process.on('SIGTERM', () => {}); fs.writeFileSync('ready', String(process.pid)); setInterval(() => {}, 1000); }
 });
 `);
-  // exec replaces the wrapper, so cancellation tests exercise the actual child.
-  await writeFile(executable, `#!/bin/sh\nexec '${process.execPath.replaceAll("'", "'\\''")}' '${script.replaceAll("'", "'\\''")}' "$@"\n`);
-  await chmod(executable, 0o700);
+  if (windows) {
+    // Real Windows native launch/quoting, without Electron or a Paseo daemon.
+    await mkdir(dirname(executable), { recursive: true });
+    await copyFile(process.execPath, join(cwd, "Paseo.exe"));
+    await writeFile(join(cwd, "resources", "app.asar"), "fixture");
+    await writeFile(executable, "@echo off\r\necho WRAPPER_MUST_NOT_RUN\r\nexit /b 99\r\n");
+  } else {
+    // exec replaces the wrapper, so cancellation tests exercise the actual child.
+    await writeFile(executable, `#!/bin/sh\nexec '${process.execPath.replaceAll("'", "'\\''")}' '${script.replaceAll("'", "'\\''")}' "$@"\n`);
+    await chmod(executable, 0o700);
+  }
   const env = { ...process.env, PASEO_HOST: undefined, PASEO_HOME: "/isolated/paseo", PASEO_HOOK_CLI: executable, PASEO_AGENT_ID: id, INHERITED_MARKER: "preserved", MODE: mode };
   return { cwd, env, call: (input: ControlInput, signal?: AbortSignal) => executeControl(input, signal, cwd, env) };
 }
@@ -82,6 +93,26 @@ test("supported commands preserve argv, cwd, environment and close stdin without
   }
 });
 
+test("preserves path-shaped workspace IDs and shell metacharacters as single arguments", async (t) => {
+  const f = await fixture(t);
+  for (const workspaceId of [
+    "C:/Work/dt/dicethrone-unity-6000.1.11f", "C:\\Work\\Mixed Case\\project\\",
+    "\\\\server\\share\\project", "/srv/space project", "/srv/project/../identity",
+  ]) {
+    const prompt = 'quotes " & echo INJECTED | %PATH% !VAR! ^ < > $(touch marker)\nnext line\\';
+    for (const input of [
+      { command: "run", workspaceId, provider: "pi", prompt },
+      { command: "terminal create", workspaceId, name: prompt },
+    ] as const) {
+      const result = await f.call(input);
+      assert.ok(!result.isError, text(result));
+      const { args } = JSON.parse(text(result).split("\n")[1]);
+      assert.ok(args.includes(`--workspace=${workspaceId}`));
+      assert.equal(args.at(-1), input.command === "run" ? prompt : `--name=${prompt}`);
+    }
+  }
+});
+
 test("rejects invalid inputs/targets and pre-canceled requests without spawning", async (t) => {
   const f = await fixture(t);
   const bad = [
@@ -91,6 +122,7 @@ test("rejects invalid inputs/targets and pre-canceled requests without spawning"
     { command: "inspect", agentId: "named-agent" }, { command: "send", agentId: id, prompt: "\0" },
     { command: "terminal create", workspaceId: "prefix", name: "shell" },
     { command: "terminal create", workspaceId: id, name: "shell" },
+    ...["", " ", "C:relative", "relative/path", "\\root-relative", "C:/bad\0path"].map(workspaceId => ({ command: "terminal create", workspaceId, name: "shell" })),
     { command: "terminal send-keys", terminalId: id, keys: ["Enter"] },
     { command: "terminal send-keys", terminalId: id, keys: [], literal: true },
     { command: "terminal send-keys", terminalId: id, keys: [42], literal: true },
