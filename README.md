@@ -149,12 +149,7 @@ Module READMEs retain predecessor usage and standalone installation references. 
 
 ## Validation
 
-```sh
-npm run check         # TypeScript, manager/host/child/TUI tests, package contents
-npm run check:packed  # Install the real tarball without host peers; rerun integration tests
-```
-
-Module tests retain their separate toolchains. Bootstrap them once, then run:
+Install root dependencies with `npm ci --ignore-scripts`. Module tests retain their separate toolchains; bootstrap them once:
 
 ```sh
 for module in extensions/*; do
@@ -167,8 +162,21 @@ for module in extensions/*; do
     fi
   )
 done
-npm run check:modules
 ```
+
+Then run the complete validation sequentially:
+
+```sh
+npm run check:all     # check → check:modules → check:packed; stops on failure
+```
+
+Individual suites remain available:
+
+- `npm run check`: TypeScript, manager/host/child/TUI tests, package contents.
+- `npm run check:modules`: each module's checks, one module at a time.
+- `npm run check:packed`: install the real tarball without host peers and rerun integration tests.
+
+Never overlap heavyweight suites, even across agent sessions or checkouts on the same shared host. Node test runners use `--test-concurrency=1`; tests needing concurrent Pi runtimes bound their own fan-out. This reduces memory pressure but is not a RAM ceiling. `check:all` sequences one invocation; it does not lock out other invocations.
 
 Automated integration tests use temporary homes and local deterministic providers, not personal credentials or live model calls. The TUI smoke test needs a POSIX `script` PTY; additional predecessor TUI tests require `expect` and otherwise skip. Root CI installs both and runs source, module, and packed-install checks on Node.js 22, 24, and 26.
 

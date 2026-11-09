@@ -26,7 +26,7 @@
 ## Validation
 
 - Read applicable module guidance and manifest-routed documents before changing behavior. Check installed Pi documentation and examples before relying on host APIs.
-- Run relevant module checks from that module's directory. For distribution or integration changes, run `npm run check`, `npm run check:modules`, and `npm run check:packed`; follow README setup instructions.
+- Run relevant module checks from that module's directory. For distribution or integration changes, follow README setup instructions, then run `npm run check:all` (source, modules, packed, sequentially). Never overlap heavyweight suites, including across agent sessions; keep test-file concurrency at one and intentional subprocess concurrency bounded. Read the validation-resource-limits standard before changing runners.
 - Use temporary homes and deterministic local providers. Live-provider tests require separate approval. Report skipped tests and untested environments explicitly; never infer that passing aggregate checks retires individual audit findings.
 - Verify parent/child resource inheritance, actual packed assets, reload behavior, and UI coexistence where affected. Children do not inherit arbitrary parent `-e` flags.
 - Run `git diff --check`. After documentation changes, verify links and a fresh Pi session's manifest diagnostics; resumed sessions may retain old snapshots.

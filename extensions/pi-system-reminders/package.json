@@ -4,7 +4,7 @@
   "description": "Reactive system reminders for pi - steer agents with contextual nudges during long agentic flows",
   "type": "commonjs",
   "scripts": {
-    "test": "node --test test/*.test.cjs",
+    "test": "node --test --test-concurrency=1 test/*.test.cjs",
     "typecheck": "tsc --noEmit",
     "test:pack": "npm pack --dry-run --json"
   },

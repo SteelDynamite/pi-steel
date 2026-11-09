@@ -53,9 +53,10 @@
     "prompts": []
   },
   "scripts": {
+    "check:all": "npm run check && npm run check:modules && npm run check:packed",
     "check": "npm run typecheck && npm test && npm run check:pack",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test test/*.test.ts",
+    "test": "tsx --test --test-concurrency=1 test/*.test.ts",
     "check:pack": "node scripts/check-pack.mjs",
     "check:packed": "npm run check:pack && node scripts/check-packed.mjs",
     "check:modules": "node scripts/check-modules.mjs"

@@ -4,7 +4,7 @@
   "description": "ChatGPT Codex usage and speed mode support for pi",
   "type": "module",
   "scripts": {
-    "test": "node --test test/e2e/*.test.js",
+    "test": "node --test --test-concurrency=1 test/e2e/*.test.js",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

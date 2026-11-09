@@ -43,7 +43,7 @@
     "typescript": "^5.0.0"
   },
   "scripts": {
-    "test": "tsx --test test/**/*.test.ts",
+    "test": "tsx --test --test-concurrency=1 test/**/*.test.ts",
     "typecheck": "tsc --noEmit",
     "pack:check": "npm pack --dry-run"
   }

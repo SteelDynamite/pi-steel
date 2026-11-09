@@ -32,7 +32,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test test/index.test.mjs",
+    "test": "npm run build && node --test --test-concurrency=1 test/index.test.mjs",
     "test:pack": "node test/pack-smoke.mjs",
     "audit:release": "npm audit --audit-level=moderate && npm run typecheck && npm test && npm run test:pack && npm publish --dry-run --access public",
     "prepack": "npm run build"

@@ -15,7 +15,7 @@ const root = resolve(process.env.STEEL_TEST_PACKAGE_ROOT ?? sourceRoot);
 const run = promisify(execFile);
 
 if (!process.env.STEEL_HERDR_CASE) {
-  test("Herdr: simultaneous Everything runtimes, fallback, child inheritance, reload, and owner exclusion", { timeout: 90_000, skip: process.platform === "win32" }, async () => {
+  test("Herdr: simultaneous Everything runtimes, fallback, child inheritance, reload, and owner exclusion", { timeout: 210_000, skip: process.platform === "win32" }, async () => {
     const home = mkdtempSync(join(tmpdir(), "steel-herdr-"));
     try {
       const agentDir = join(home, "agent");
@@ -42,27 +42,30 @@ else console.log('# hc manual (herdr-core)\\n' + process.env.STEEL_HERDR_MANUAL)
       writeFileSync(configPath, JSON.stringify({ version: 1, active: "Everything", loadouts: {}, managed: [{ source: memory }] }));
       const settingsBefore = readFileSync(settingsPath, "utf8");
       const configBefore = readFileSync(configPath, "utf8");
-      await Promise.all(["native", "herdr", "fallback", "timeout", "child", "child-fallback"].map(async variant => {
-        const cwd = join(home, variant);
-        mkdirSync(cwd);
-        const network = join(home, `${variant}-network`);
-        const probes = join(home, `${variant}-probes`);
-        const { stdout, stderr } = await run(process.execPath, ["--import", "tsx", fileURLToPath(import.meta.url)], {
-          cwd: sourceRoot, timeout: 60_000,
-          env: {
-            PATH: `${bin}:${process.env.PATH}`, HOME: home, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1",
-            STEEL_TEST_PACKAGE_ROOT: root, STEEL_HERDR_CASE: variant, STEEL_HERDR_CWD: cwd, STEEL_HERDR_PROBES: probes, STEEL_HERDR_MANUAL: "manual-v1",
-            NODE_OPTIONS: `--import=${join(sourceRoot, "test/fixtures/child-network-guard.mjs")}`, STEEL_NETWORK_ATTEMPTS: network,
-            ...(variant !== "native" ? { HC_TERMINAL_ID: `t-${variant}` } : {}),
-            ...(variant.startsWith("child") ? { PI_ORCHESTRATED_CHILD: "1" } : {}),
-            ...(["fallback", "timeout", "child-fallback"].includes(variant) ? { STEEL_HERDR_FAILURE: variant } : {}),
-          },
-        });
-        assert.match(stdout, /Herdr case passed:/, `${stdout}\n${stderr}`);
-        assert(!existsSync(network), `${variant} attempted networking`);
-        if (variant === "native") assert(!existsSync(probes), "outside hc: no process probe");
-        else for (const line of readFileSync(probes, "utf8").trim().split("\n")) assert.deepEqual(JSON.parse(line), ["--skill"], "never start or inspect a daemon");
-      }));
+      // Keep cross-runtime interference coverage without starting six Pi runtimes at once.
+      for (const variants of [["native", "herdr"], ["fallback", "timeout"], ["child", "child-fallback"]]) {
+        await Promise.all(variants.map(async variant => {
+          const cwd = join(home, variant);
+          mkdirSync(cwd);
+          const network = join(home, `${variant}-network`);
+          const probes = join(home, `${variant}-probes`);
+          const { stdout, stderr } = await run(process.execPath, ["--import", "tsx", fileURLToPath(import.meta.url)], {
+            cwd: sourceRoot, timeout: 60_000,
+            env: {
+              PATH: `${bin}:${process.env.PATH}`, HOME: home, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1",
+              STEEL_TEST_PACKAGE_ROOT: root, STEEL_HERDR_CASE: variant, STEEL_HERDR_CWD: cwd, STEEL_HERDR_PROBES: probes, STEEL_HERDR_MANUAL: "manual-v1",
+              NODE_OPTIONS: `--import=${join(sourceRoot, "test/fixtures/child-network-guard.mjs")}`, STEEL_NETWORK_ATTEMPTS: network,
+              ...(variant !== "native" ? { HC_TERMINAL_ID: `t-${variant}` } : {}),
+              ...(variant.startsWith("child") ? { PI_ORCHESTRATED_CHILD: "1" } : {}),
+              ...(["fallback", "timeout", "child-fallback"].includes(variant) ? { STEEL_HERDR_FAILURE: variant } : {}),
+            },
+          });
+          assert.match(stdout, /Herdr case passed:/, `${stdout}\n${stderr}`);
+          assert(!existsSync(network), `${variant} attempted networking`);
+          if (variant === "native") assert(!existsSync(probes), "outside hc: no process probe");
+          else for (const line of readFileSync(probes, "utf8").trim().split("\n")) assert.deepEqual(JSON.parse(line), ["--skill"], "never start or inspect a daemon");
+        }));
+      }
       assert.equal(readFileSync(settingsPath, "utf8"), settingsBefore, "simultaneous runtimes never switch global filters");
       assert.equal(readFileSync(configPath, "utf8"), configBefore, "Everything remains selected");
     } finally {
