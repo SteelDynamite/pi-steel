@@ -14,7 +14,7 @@ for (const path of files) {
   assert(!/(^|\/)(node_modules|test|tests|\.agents|\.github)(\/|$)/.test(path), `Forbidden packed path: ${path}`);
   assert(!/\.(tgz|log|tsbuildinfo)$/.test(path), `Artifact: ${path}`);
 }
-for (const path of ['index.ts', 'src/manager.ts', 'extensions.manifest.json', 'loadouts.json', 'LICENSE', 'presets/memory/steel.json', 'presets/memory/settings.json']) assert(files.has(path), `Missing ${path}`);
+for (const path of ['index.ts', 'src/manager.ts', 'extensions.manifest.json', 'loadouts.json', 'LICENSE', 'presets/keybindings.json', 'presets/memory/steel.json', 'presets/memory/settings.json']) assert(files.has(path), `Missing ${path}`);
 const loadouts = JSON.parse(readFileSync(new URL('../loadouts.json', import.meta.url), 'utf8'));
 assert.equal(loadouts.version, 1);
 assert.equal(loadouts.default, 'Everything');

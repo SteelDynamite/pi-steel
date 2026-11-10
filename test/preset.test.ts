@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
+import { getPackageDir } from "@earendil-works/pi-coding-agent";
 import { parseConfig, readConfig, readLoadouts, saveConfig, select } from "../src/manager.js";
 
 const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -15,6 +16,27 @@ const preset = JSON.parse(readFileSync(join(root, "presets/memory/steel.json"), 
 const settings = JSON.parse(readFileSync(join(root, "presets/memory/settings.json"), "utf8"));
 // Import only inert definitions; never resolve the caller's personal settings.
 const upstream = await import(pathToFileURL(join(upstreamRoot, "src/config.ts")).href);
+
+test("optional keybindings load through Pi without replacing unrelated bindings", async t => {
+  const bindings = JSON.parse(readFileSync(join(root, "presets/keybindings.json"), "utf8"));
+  assert.deepEqual(bindings, {
+    "tui.altScreen.lineUp": "alt+up",
+    "tui.altScreen.lineDown": "alt+down",
+    "app.message.dequeue": "alt+q",
+  });
+  const dir = mkdtempSync(join(tmpdir(), "steel-keybindings-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, "keybindings.json"), JSON.stringify({ "app.session.new": "ctrl+shift+n", ...bindings }));
+  // Pi does not export the concrete loader; exercise the installed host artifact.
+  const { KeybindingsManager } = await import(pathToFileURL(join(getPackageDir(), "dist/core/keybindings.js")).href);
+  const manager = KeybindingsManager.create(dir);
+  for (const [action, key] of Object.entries(bindings)) assert.deepEqual(manager.getKeys(action), [key]);
+  assert.deepEqual(manager.getKeys("app.session.new"), ["ctrl+shift+n"]);
+  assert.deepEqual(manager.getKeys("tui.altScreen.pageUp"), ["pageUp"]);
+  assert(manager.matches("\u001b[1;3A", "tui.altScreen.lineUp"));
+  assert(manager.matches("\u001b[1;3B", "tui.altScreen.lineDown"));
+  assert(!manager.matches("\u001b[1;3A", "app.message.dequeue"));
+});
 
 test("shipped selections default to Everything without persisting definitions", t => {
   const dir = mkdtempSync(join(tmpdir(), "steel-loadouts-"));

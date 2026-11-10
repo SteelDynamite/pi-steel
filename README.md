@@ -92,6 +92,14 @@ Outside Herdr, or if the check fails, native delegation remains available. A fai
 
 Herdr handoff does not translate behavioral definitions, preserve native subagent lifecycle guarantees, or automatically copy the parent's model, effort, or speed. Herdr templates or the launched agent's defaults determine those settings. The guidance requires Pi helpers to receive `PI_ORCHESTRATED_CHILD=1` and the intended `PI_CODING_AGENT_DIR` explicitly, preserving supervisor suppression and resource selection without assuming the daemon inherits the calling shell's environment. See [pi-subagent's Herdr behavior](extensions/pi-subagent/README.md#herdr-handoff) for limits.
 
+### Optional keybindings
+
+[presets/keybindings.json](presets/keybindings.json) maps Alt+↑/↓ to one-line transcript scrolling in **fullscreen mode**, and moves restoring queued messages to Alt+Q. Regular mode uses the terminal's scrollback instead. Focused overlays and lists retain their own keyboard handling.
+
+To apply, back up `<agent-dir>/keybindings.json` (normally `~/.pi/agent/keybindings.json`), then merge the preset's three entries into it, preserving unrelated bindings. Create the file if absent. Check other custom actions for conflicting keys, then run `/reload`. To undo, restore the previous values or remove these entries if they were previously absent, then reload.
+
+This is an opt-in configuration fragment, not an automatically loaded Pi package resource. Installing/updating Steel or switching loadouts does not apply, update, or remove it. It does not change the display mode.
+
 ### Observational memory
 
 All shipped loadouts include upstream [pi-observational-memory](https://github.com/elpapi42/pi-observational-memory), tracking its unpinned Git default branch. It remains an external package, not a vendored module or fork. [presets/memory/steel.json](presets/memory/steel.json) is a legacy compatibility snapshot, not the recommended shipped selection; use `Everything` or `ChatBot` instead.

@@ -1,0 +1,5 @@
+{
+  "tui.altScreen.lineUp": "alt+up",
+  "tui.altScreen.lineDown": "alt+down",
+  "app.message.dequeue": "alt+q"
+}
