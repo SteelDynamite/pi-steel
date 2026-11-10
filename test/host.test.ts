@@ -180,6 +180,9 @@ async function exerciseHost(): Promise<void> {
     assert(!existsSync(join(cwd, ".agents/docs/POLICIES.md")));
     const manifest = session.sessionManager.getEntries().findLast(entry => entry.type === "custom" && entry.customType === "doc-manifests");
     assert(manifest?.type === "custom");
+    const preamble = readFileSync(join(root, "extensions/pi-doc-manifests/src/AGENTDOCS.md"), "utf8").trim();
+    assert((manifest.data as { content: string }).content.startsWith(`${preamble}\n\n## `));
+    assert(!existsSync(join(cwd, ".agents/docs/AGENTDOCS.md")));
     assert.match((manifest.data as { content: string }).content, /## Standards/);
     assert.doesNotMatch((manifest.data as { content: string }).content, /## Diagnostics|## Decisions|## Policies/);
     await session.reload();

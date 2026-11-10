@@ -302,6 +302,8 @@ test("packages generic manifest skills while keeping category-specific skills pr
   const { stdout } = await execFileAsync("npm", ["pack", "--dry-run", "--json"]);
   const packed = JSON.parse(stdout) as Array<{ files: Array<{ path: string }> }>;
   const files = new Set(packed[0]!.files.map((file) => file.path));
+  assert.ok(files.has("src/AGENTDOCS.md"));
+  assert.ok(!files.has("templates/docs/AGENTDOCS.md"));
   assert.ok(files.has("skills/doc-manifests-designer/SKILL.md"));
   assert.ok(files.has("skills/doc-manifests-maintainer/SKILL.md"));
   assert.ok(files.has("skills/doc-manifests-session-reviewer/SKILL.md"));
