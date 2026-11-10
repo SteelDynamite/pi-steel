@@ -8,4 +8,4 @@ doc-manifest:
     required-sections: [Goal, Preconditions, Steps, Verification, Troubleshooting]
     filename-pattern: "**/*.md"
 ---
-Repeatable sequential instructions for operations and troubleshooting.
+A repeatable procedure for achieving a specific outcome. After running through a procedure, reflect on opportunities to refine and evolve the runbook based on the experience.

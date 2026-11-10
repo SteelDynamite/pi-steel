@@ -4,4 +4,4 @@ doc-manifest:
   validation:
     filename-pattern: "**/*.md"
 ---
-Definitions of non-standard project-specific terms.
+Non-standard project-specific terms and their definitions.

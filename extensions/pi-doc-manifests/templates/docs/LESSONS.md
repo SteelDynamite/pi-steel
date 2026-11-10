@@ -8,4 +8,4 @@ doc-manifest:
     required-sections: [Problem, Fix, When to use]
     filename-pattern: "**/*.md"
 ---
-Recurring observed problems, their likely causes, and best known solutions—especially unexpected external-dependency behavior.
+Observed problems and unexpected behaviors of external dependencies that are likely to reappear in the future, each with a theory of why it's happening and the best known solution to it.
