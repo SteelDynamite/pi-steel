@@ -53,6 +53,8 @@ Reload pi. After 3 failed bash calls, the agent sees:
 4. The function returns a reminder: an event to listen on, a predicate, and a message.
 5. When the predicate returns true, a `<system-reminder>` steering message is injected into the conversation with `deliverAs: "steer"` and `triggerTurn: true` by default.
 
+When reminders are loaded, their interpretation guidance occupies the `pi_system_reminders` system-prompt section. The hook updates only that section and removes it when no reminders remain, preserving other extensions' sections and per-request prompt updates. This requires Pi's structured `systemPromptOptions.sections` API; Steel's integration tests target Pi 1.4.0.
+
 In orchestrated children (`PI_ORCHESTRATED_CHILD=1`), reminder factories and automatic handlers are not loaded; `/reminders` remains available. In parent sessions, recurring turn-triggering reminders still require careful predicates: no finite continuation budget is enforced. Prefer `triggerTurn: false` for advisory reminders. `once` and cooldown prevent duplicate concurrent commits but are not a general supervisor budget.
 
 ## Security

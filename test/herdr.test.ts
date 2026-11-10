@@ -124,13 +124,14 @@ else console.log('# hc manual (herdr-core)\\n' + process.env.STEEL_HERDR_MANUAL)
       assert(session.getActiveToolNames().includes("recall"));
       assert(loader.getSkills().skills.some(skill => skill.name === "doc-manifests-designer"));
       const before = await session.extensionRunner.emitBeforeAgentStart({ messageType: "user", prompt: "Inspect available delegation", images: undefined }, { cwd, selectedTools: session.getActiveToolNames() });
-      for (const name of ["scout", "worker", "reviewer"]) assert.equal((before.systemPromptOptions.forceSystemPrompt ?? "").includes(`<id>${name}</id>`), native);
+      for (const name of ["scout", "worker", "reviewer"]) assert.equal((before.systemPromptOptions.sections.pi_subagent ?? "").includes(`<id>${name}</id>`), native);
       const section = before.systemPromptOptions.sections.herdr_delegation;
       assert.equal(typeof section === "string", herdr);
       const requestCount = requests.length;
       await session.prompt("Inspect available delegation context; do not run tools.");
       assert.equal(requests.length, requestCount + 1, "one model request, no preparatory tool turns");
       const prompt = requests.at(-1)!;
+      for (const name of ["scout", "worker", "reviewer"]) assert.equal(prompt.includes(`<id>${name}</id>`), native);
       assert.equal(prompt.includes("## Installed hc manual (already loaded)"), herdr);
       if (herdr) {
         assert(section.includes(expectedManual));

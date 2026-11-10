@@ -41,7 +41,8 @@ test("initializes the optional example layout and exact project skills", async (
     for (const skill of SKILLS) {
       const contents = await readFile(join(cwd, ".agents", "skills", skill, "SKILL.md"), "utf8");
       assert.match(contents, new RegExp(`name: ${skill}`));
-      assert.match(contents, /When this document is relevant or must be read; what it provides\./);
+      assert.match(contents, /When this applies and its primary guidance; when supporting detail must be read\./);
+      assert.doesNotMatch(contents, /keywords:/);
     }
 
     const manifest = await buildManifest(cwd) ?? "";
@@ -59,29 +60,24 @@ test("example initialization guides retain their validation contracts", async ()
     assert.match(features, /priorities: true/);
     assert.match(features, /display-fields: \[status\]/);
     assert.match(features, /values: \[draft, ready, in-progress\]/);
-    assert.match(features, /keywords:\n        type: string\[\]/);
     assert.match(features, /required-sections: \[Goal\]/);
-    assert.match(features, /filename-pattern: "\*\*\/\*\.md"/);
 
     const techdebt = await guide("TECHDEBT.md");
     assert.match(techdebt, /priorities: true/);
     assert.match(techdebt, /values: \[backlog, in-progress\]/);
     assert.match(techdebt, /required-sections: \[Debt, Impact, Why we took it, Retirement condition\]/);
-    assert.match(techdebt, /keywords:\n        type: string\[\]/);
+    assert.match(techdebt, /display-fields: \[status\]/);
 
     const standards = await guide("STANDARDS.md");
-    assert.doesNotMatch(standards, /required-sections/);
-    assert.match(standards, /filename-pattern: "\*\*\/\*\.md"/);
-    assert.match(standards, /keywords:\n        type: string\[\]/);
-    assert.equal(standards.split("---\n")[2]?.trim(), "Consequential choices explaining the current design, the intentions behind it, and its tradeoffs, or rules that must be followed as part of the project's conventions.");
+    assert.match(standards, /required-sections: \[Standard, Scope and exceptions, Rationale and tradeoffs\]/);
+    assert.match(standards, /Distinguish requirements from preferences/);
 
     const goals = await guide("GOALS.md");
     assert.match(goals, /required-sections: \[Intent, Implications\]/);
-    assert.match(goals, /keywords:\n        type: string\[\]/);
-    for (const name of ["LESSONS.md", "RUNBOOKS.md"]) assert.match(await guide(name), /keywords:\n        type: string\[\]/);
+    for (const category of CATEGORIES) assert.doesNotMatch(await guide(`${category.toUpperCase()}.md`), /keywords:|filename-pattern:/);
     assert.match(await guide("LESSONS.md"), /required-sections: \[Problem, Fix, When to use\]/);
     assert.match(await guide("RUNBOOKS.md"), /required-sections: \[Goal, Preconditions, Steps, Verification, Troubleshooting\]/);
-    assert.match(await guide("GLOSSARY.md"), /filename-pattern: "\*\*\/\*\.md"/);
+    assert.match(await guide("GLOSSARY.md"), /Project-specific meanings/);
     for (const category of CATEGORIES) assert.doesNotMatch(await guide(`${category.toUpperCase()}.md`), /\n  version:/);
 
     for (const name of [...CATEGORIES.map((category) => `${category.toUpperCase()}.md`), ...SKILLS]) {
@@ -91,23 +87,30 @@ test("example initialization guides retain their validation contracts", async ()
   } finally { await remove(cwd); }
 });
 
-test("standards accept unnumbered choices and rules without a combined heading contract", async () => {
+test("standards require their three headings and creator examples satisfy every paired declaration", async () => {
   const cwd = await project();
   try {
     assert.deepEqual(await initializeProject(cwd), { ok: true });
     const standards = join(cwd, ".agents", "docs", "standards");
-    const metadata = "---\ndescription: Read before changing this standard.\nkeywords: [design]\n---\n";
-    await writeFile(join(standards, "design-choice.md"), metadata + "# Choice\n\n## Context\nNeed.\n\n## Options considered\nTradeoffs.\n\n## Decision\nChoice.\n\n## Consequences\nCosts.\n");
-    await writeFile(join(standards, "mandatory-rule.md"), metadata + "# Rule\n\n## Rule\nDo this.\n\n## Applies to\nThis project.\n");
-    await writeFile(join(standards, "small-standard.md"), metadata + "# Small standard\n\nA choice and its rationale.\n");
-    const manifest = await buildManifest(cwd) ?? "";
-    for (const name of ["design-choice.md", "mandatory-rule.md", "small-standard.md"]) assert.ok(manifest.includes(name));
-    assert.doesNotMatch(manifest, /## Diagnostics/);
+    for (const [index, category] of CATEGORIES.entries()) {
+      const creator = await readFile(join(cwd, ".agents/skills", SKILLS[index]!, "SKILL.md"), "utf8");
+      const example = /```md\n([\s\S]*?)\n```/.exec(creator)?.[1];
+      assert.ok(example, category);
+      await writeFile(join(cwd, ".agents/docs", category, "example.md"), example);
+    }
+    assert.doesNotMatch(await buildManifest(cwd) ?? "", /## Diagnostics/);
+    const metadata = "---\ndescription: Use this convention.\n---\n";
+    await writeFile(join(standards, "missing-sections.md"), metadata + "# Standard\n\n## Standard\nPrefer this.\n");
+    const invalid = await buildManifest(cwd) ?? "";
+    assert.match(invalid, /missing-section.*Scope and exceptions/);
+    assert.match(invalid, /missing-section.*Rationale and tradeoffs/);
     await writeFile(join(standards, "invalid.md"), "# Missing metadata\n");
     assert.match(await buildManifest(cwd) ?? "", /## Diagnostics/);
     const skill = await readFile(join(cwd, ".agents", "skills", "doc-standard-creator", "SKILL.md"), "utf8");
     assert.match(skill, /unnumbered kebab-case/);
-    assert.match(skill, /not a mandatory combined shape/);
+    assert.match(skill, /exactly the three H2 headings/);
+    assert.deepEqual([...skill.matchAll(/^## (.+)$/gm)].map(match => match[1]), ["Standard", "Scope and exceptions", "Rationale and tradeoffs"]);
+    assert.match(skill, /ask the owner rather than inventing/);
   } finally { await remove(cwd); }
 });
 
@@ -222,7 +225,7 @@ test("command accepts only init and requires trust", async () => {
     await assert.rejects(readdir(join(cwd, ".agents", "docs")));
 
     await command.handler("init", context(true));
-    assert.deepEqual(notifications.pop(), { message: "Initialized example .agents/docs categories and project-local doc-* skills. Start a new Pi session to load the project skills.", level: "info" });
+    assert.deepEqual(notifications.pop(), { message: "Initialized example .agents/docs categories and project-local doc-* skills. Reload Pi resources to load the project skills.", level: "info" });
     assert.equal(appended.length, 1);
   } finally { await remove(cwd); }
 });
@@ -263,41 +266,47 @@ test("packages generic manifest skills while keeping category-specific skills pr
   const designer = await readFile("skills/doc-manifests-designer/SKILL.md", "utf8");
   assert.match(designer, /name: doc-manifests-designer/);
   assert.match(designer, /not a predefined or exhaustive taxonomy/);
-  assert.match(designer, /active routing instruction, not merely a summary/);
+  assert.match(designer, /active routing instructions, not merely summaries/);
   assert.match(designer, /doc-manifest\.creator-skill/);
-  assert.match(designer, /require explicit approval before/);
-  assert.doesNotMatch(designer, /\b(?:decisions|features|glossary|goals|lessons|policies|runbooks|standards|techdebt)\b/);
-  for (const change of ["creating it", "materially expanding", "invalidates existing documents", "renaming, merging, or deleting"]) {
-    assert.match(designer, new RegExp(change));
-  }
+  assert.match(designer, /do not invent approval gates/);
+  assert.match(designer, /project-specific gate/);
+  assert.doesNotMatch(designer, /\b(?:features|glossary|goals|lessons|policies|runbooks|standards|techdebt)\b/);
+  assert.match(designer, /A description may suffice/);
 
   const maintainer = await readFile("skills/doc-manifests-maintainer/SKILL.md", "utf8");
   assert.match(maintainer, /name: doc-manifests-maintainer/);
   assert.match(maintainer, /mechanical[\s\S]*semantic[\s\S]*structural/);
   assert.match(maintainer, /doc-manifest\.creator-skill/);
-  assert.match(maintainer, /ask the user to approve or revise/);
+  assert.match(maintainer, /Act autonomously within clear project intent/);
   assert.match(maintainer, /\.pi-doc-manifests-layout-version/);
   assert.match(maintainer, /doc-manifest\.version/);
-  assert.match(maintainer, /Load `doc-manifests-designer`/);
-  assert.match(maintainer, /Existing Decisions, Policies, numbered filenames, and custom categories remain supported/);
+  assert.match(maintainer, /Use `doc-manifests-designer`/);
+  assert.match(maintainer, /Existing Decisions, Policies, numbered filenames and custom categories remain supported/);
   assert.match(maintainer, /old-to-new path map/);
   assert.match(maintainer, /case-insensitive collisions/);
-  assert.match(maintainer, /Back up affected files/);
+  assert.match(maintainer, /Protect affected files outside the scanned tree/);
   assert.match(maintainer, /Git-ignored files/);
-  assert.match(maintainer, /rather than combining the old required-heading lists/);
-  assert.match(maintainer, /Preserve historical provenance paths and old session data/);
-  assert.match(maintainer, /If already migrated, leave it unchanged/);
+  assert.match(maintainer, /three ordered sections/);
+  assert.match(maintainer, /Leave existing session data untouched/);
+  assert.match(maintainer, /If already consolidated, leave it unchanged/);
 
   const reviewer = await readFile("skills/doc-manifests-session-reviewer/SKILL.md", "utf8");
   assert.match(reviewer, /name: doc-manifests-session-reviewer/);
   assert.match(reviewer, /\$PI_SESSION_FILE/);
   assert.match(reviewer, /Do not preload category creator skills/);
   assert.match(reviewer, /As soon as a candidate document change is identified, load/);
-  assert.match(reviewer, /file-specific plan/);
-  assert.match(reviewer, /Ask the user to approve or revise/);
+  assert.match(reviewer, /otherwise act without asking/);
+  assert.match(reviewer, /Follow project-specific approval requirements/);
   assert.match(reviewer, /No documentation changes needed/);
   assert.doesNotMatch(reviewer, /\b(?:decisions|features|glossary|goals|lessons|policies|runbooks|standards|techdebt)\b/);
   assert.doesNotMatch(reviewer, /README\.md|AGENTS\.md/);
+  const runbook = await readFile("templates/project-skills/doc-runbook-creator/SKILL.md", "utf8");
+  assert.match(runbook, /READ–DO[\s\S]*DO–CONFIRM/);
+  assert.match(runbook, /not instructions to repeat completed work/);
+  assert.match(runbook, /After use, directly apply improvements/);
+  const lesson = await readFile("templates/project-skills/doc-lesson-creator/SKILL.md", "utf8");
+  assert.match(lesson, /external dependencies outside the project's control/);
+  assert.match(lesson, /hypothesis and working mitigation are sufficient/);
 
   const { stdout } = await execFileAsync("npm", ["pack", "--dry-run", "--json"]);
   const packed = JSON.parse(stdout) as Array<{ files: Array<{ path: string }> }>;

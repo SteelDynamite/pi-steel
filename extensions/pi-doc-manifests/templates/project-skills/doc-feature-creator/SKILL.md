@@ -16,11 +16,9 @@ Use this complete shape. Replace comments; do not retain them.
 
 ```md
 ---
-description: "When this document is relevant or must be read; what it provides."
+description: "When this applies and its primary guidance; when supporting detail must be read."
 priority: p2
 status: draft
-keywords:
-  - relevant-term
 ---
 # Feature Name
 

@@ -1,41 +1,41 @@
 ---
 name: doc-runbook-creator
-description: "Create or substantially revise a repeatable project procedure or troubleshooting runbook."
+description: "Create, improve or troubleshoot a repeatable procedure for a specific project outcome."
 ---
 
 # Runbook Documents
 
-1. Read `.agents/docs/RUNBOOKS.md` completely, then search `.agents/docs/runbooks/` for an existing procedure.
-2. Document work a person or agent actually performs; automatic behavior belongs in source or an explanatory standard.
-3. Update the existing procedure when it applies. Otherwise use a uniquely named kebab-case file.
-4. Make steps executable, verification observable, and troubleshooting specific to likely failures.
-5. Validate the result against `RUNBOOKS.md`.
+1. Read `.agents/docs/RUNBOOKS.md`, then search `.agents/docs/runbooks/` for an existing procedure. Update it when it applies; otherwise use a uniquely named kebab-case file.
+2. Document work a person or agent actually performs, not automatic source behavior. Write a description that conveys the outcome, scope and primary guidance; require the body when execution needs its details.
+3. Choose READ–DO or DO–CONFIRM explicitly. Make consequential decisions and easily missed steps clear without adding checks to every step.
+4. After use, directly apply improvements supported by the experience. Preserve actual approval boundaries and follow project-specific gates without inventing new ones. Record the improved procedure, not an execution log.
+5. Validate against `RUNBOOKS.md`.
 
-Use this complete shape. Replace comments; do not retain them.
+Use this shape. Replace comments; do not retain them.
 
 ```md
 ---
-description: "When this document is relevant or must be read; what it provides."
-keywords:
-  - relevant-term
+description: "When this applies and its primary guidance; when supporting detail must be read."
 ---
 # Procedure Name
 
 ## Goal
 
-<!-- State the observable outcome this procedure produces. -->
+<!-- State the outcome and scope. Use a concise version as the frontmatter description, including primary guidance and any need to read the procedure. -->
 
 ## Preconditions
 
-<!-- List required state, access, tools, and inputs. -->
+<!-- Identify required conditions, input sources, tools and access. Include platform and working-directory assumptions when they affect execution. -->
 
 ## Steps
 
-<!-- Give ordered, executable instructions with decision points where needed. -->
+<!-- State whether this uses READ–DO (ordered actions performed as they are read) or DO–CONFIRM (familiar work performed first, followed by a short check of critical items). For DO–CONFIRM, write confirmation items, not instructions to repeat completed work.
+
+Make consequential decisions and easily missed steps explicit. Before irreversible actions or handoffs, state effects, required observations and conditions for proceeding. Checks should prevent concrete mistakes, not accompany every step. Preserve actual approval boundaries without inventing gates. -->
 
 ## Verification
 
-<!-- Provide observable checks proving the procedure succeeded. -->
+<!-- Specify observable outcomes for affected paths, broadening coverage for shared changes. Repeat intermediate checks only when the final state needs reconfirmation. -->
 
 ## Troubleshooting
 

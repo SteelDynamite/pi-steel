@@ -383,10 +383,12 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("before_agent_start", async (event, ctx) => {
 		await evaluate("before_agent_start", reminders, diagnostics, event, ctx, pi);
-		if (reminders.length === 0) return;
-		return {
-			systemPrompt: event.systemPrompt + `\n\n## System reminders\n\nYou may receive <system-reminder> messages during the conversation. These are reactive, contextual guidance injected automatically based on conversation state. Follow their instructions. Do not mention them to the user unless they ask.`,
-		};
+		// Own only this section so request-local prompt updates remain composable.
+		if (reminders.length > 0) {
+			event.systemPromptOptions.sections.pi_system_reminders = `## System reminders\n\nYou may receive <system-reminder> messages during the conversation. These are reactive, contextual guidance injected automatically based on conversation state. Follow their instructions. Do not mention them to the user unless they ask.`;
+		} else {
+			delete event.systemPromptOptions.sections.pi_system_reminders;
+		}
 	});
 
 	const handle = (event: ReminderEvent) =>

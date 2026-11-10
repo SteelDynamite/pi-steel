@@ -45,7 +45,7 @@ function context(cwd, entries = []) {
 	return { cwd, mode: "tui", hasUI: false, isProjectTrusted: () => true,
 		sessionManager: { getBranch: () => entries, buildContextEntries: () => entries } };
 }
-const event = { systemPrompt: "base", systemPromptOptions: { contextFiles: [], selectedTools: [], toolSnippets: {} } };
+const event = { systemPrompt: "base", systemPromptOptions: { contextFiles: [], selectedTools: [], toolSnippets: {}, sections: {} } };
 
 test("only exact 1 enables locational agents; stale ownership and advertisement cannot enable them", async () => {
 	const owned = join(root, "owned");
@@ -72,9 +72,10 @@ test("only exact 1 enables locational agents; stale ownership and advertisement 
 		const ctx = context(owned, entries);
 		for (const name of ["session_start", "session_tree", "session_compact"]) await handlers.get(name)({}, ctx);
 		assert.deepEqual(entries, []);
-		const prompt = await handlers.get("before_agent_start")(event, ctx);
-		assert.match(prompt.systemPrompt, /<id>worker<\/id>/);
-		assert.doesNotMatch(prompt.systemPrompt, /OWNER INSTRUCTIONS|Available locational agents|configuration errors/);
+		assert.equal(await handlers.get("before_agent_start")(event, ctx), undefined);
+		const prompt = event.systemPromptOptions.sections.pi_subagent;
+		assert.match(prompt, /<id>worker<\/id>/);
+		assert.doesNotMatch(prompt, /OWNER INSTRUCTIONS|Available locational agents|configuration errors/);
 		for (const toolName of ["read", "write", "edit", "bash"]) {
 			assert.equal(await handlers.get("tool_call")({ toolName, input: { path: join(owned, "file"), command: "cat file" } }, ctx), undefined);
 		}
@@ -127,8 +128,8 @@ test("installed extension scanning a separate source checkout has no default loc
 	const ctx = context(checkout, entries);
 	await handlers.get("session_start")({}, ctx);
 	assert.deepEqual(entries, []);
-	const prompt = await handlers.get("before_agent_start")(event, ctx);
-	assert.doesNotMatch(prompt.systemPrompt, /Available locational agents|configuration errors/);
+	assert.equal(await handlers.get("before_agent_start")(event, ctx), undefined);
+	assert.doesNotMatch(event.systemPromptOptions.sections.pi_subagent, /Available locational agents|configuration errors/);
 	assert.equal(await handlers.get("tool_call")({ toolName: "edit", input: { path: join(source, "agents", "reviewer", "SUBAGENTS.md") } }, ctx), undefined);
 	// Explicit opt-in retains module-relative discovery; no broad agents/ exclusion hides this case.
 	process.env[ENABLE_LOCATIONAL_AGENTS_ENV] = "1";

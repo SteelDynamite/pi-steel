@@ -2,9 +2,6 @@
 doc-manifest:
   creator-skill: doc-standard-creator
   validation:
-    frontmatter:
-      keywords:
-        type: string[]
-    filename-pattern: "**/*.md"
+    required-sections: [Standard, Scope and exceptions, Rationale and tradeoffs]
 ---
-Consequential choices explaining the current design, the intentions behind it, and its tradeoffs, or rules that must be followed as part of the project's conventions.
+Consequential design guidance and conventions. Distinguish requirements from preferences, state applicability and exceptions, and explain decision-relevant context, intentions and tradeoffs. Use Standard, Scope and exceptions, and Rationale and tradeoffs as the three H2 sections, in that order.

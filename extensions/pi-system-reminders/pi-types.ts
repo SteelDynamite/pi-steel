@@ -29,7 +29,10 @@ export interface ExtensionContext {
 
 export type SessionStartEvent = BasicEvent<"session_start"> & { reason?: string };
 export type AgentStartEvent = BasicEvent<"agent_start">;
-export type BeforeAgentStartEvent = BasicEvent<"before_agent_start"> & { systemPrompt: string };
+export type BeforeAgentStartEvent = BasicEvent<"before_agent_start"> & {
+	systemPrompt: string;
+	systemPromptOptions: { sections: Record<string, string>; [key: string]: unknown };
+};
 export type ModelSelectEvent = BasicEvent<"model_select"> & { model: ModelRef; previousModel?: ModelRef | null };
 export type ToolResultEvent = BasicEvent<"tool_result"> & {
 	toolName: string;

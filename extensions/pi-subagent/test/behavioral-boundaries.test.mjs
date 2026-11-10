@@ -56,7 +56,7 @@ function context(cwd, entries = []) {
 	};
 }
 
-const promptEvent = { systemPrompt: "base", systemPromptOptions: { contextFiles: [], selectedTools: [], toolSnippets: {} } };
+const promptEvent = { systemPrompt: "base", systemPromptOptions: { contextFiles: [], selectedTools: [], toolSnippets: {}, sections: { other: "preserved" } } };
 
 test("bundled agents need no project link or root owner: IDs, manifest, prompt, and edit guard", async () => {
 	const discovery = discoverAgents(repo, true);
@@ -76,13 +76,31 @@ test("bundled agents need no project link or root owner: IDs, manifest, prompt, 
 	const ctx = context(repo, entries);
 	await handlers.get("session_start")({}, ctx);
 	assert.deepEqual(entries, []);
-	const prompt = await handlers.get("before_agent_start")(promptEvent, ctx);
-	assert.match(prompt.systemPrompt, /<id>reviewer<\/id>/);
-	assert.doesNotMatch(prompt.systemPrompt, /## Available locational agents|Subagent configuration errors:/);
+	assert.equal(await handlers.get("before_agent_start")(promptEvent, ctx), undefined);
+	const prompt = promptEvent.systemPromptOptions.sections.pi_subagent;
+	assert.match(prompt, /<id>reviewer<\/id>/);
+	assert.doesNotMatch(prompt, /## Available locational agents|Subagent configuration errors:/);
+	assert.equal(promptEvent.systemPrompt, "base");
+	assert.equal(promptEvent.systemPromptOptions.sections.other, "preserved");
+	assert.equal(await handlers.get("before_agent_start")(promptEvent, ctx), undefined);
+	assert.equal(promptEvent.systemPromptOptions.sections.pi_subagent, prompt);
 	for (const toolName of ["read", "edit", "write"]) {
 		assert.equal(await handlers.get("tool_call")({ toolName, input: { path: "agents/reviewer/SUBAGENTS.md" } }, ctx), undefined);
 	}
 	assert.equal(await handlers.get("tool_call")({ toolName: "bash", input: { command: "git diff -- agents/reviewer/SUBAGENTS.md" } }, ctx), undefined);
+});
+
+test("empty discovery removes only the subagent prompt section", async () => {
+	for (const id of ["reviewer", "scout", "worker"]) {
+		define(join(root, "user", "agents", id), "description: Hidden\nmanifest: false");
+	}
+	const { handlers } = extension();
+	const event = { systemPrompt: "base", systemPromptOptions: {
+		sections: { other: "preserved", pi_subagent: "stale" },
+	} };
+	assert.equal(await handlers.get("before_agent_start")(event, context(root)), undefined);
+	assert.deepEqual(event.systemPromptOptions.sections, { other: "preserved" });
+	assert.equal(event.systemPrompt, "base");
 });
 
 test("monorepo ancestor scans exclude bundled companions without project symlinks", async () => {
@@ -214,7 +232,8 @@ test("containing guards skip behavioral definitions but keep the genuine source 
 
 test("starting inside a bundled definition does not inject it as local owner instructions", async () => {
 	const { handlers } = extension();
-	const prompt = await handlers.get("before_agent_start")(promptEvent, context(join(repo, "agents", "reviewer")));
-	assert.doesNotMatch(prompt.systemPrompt, /You are a senior code reviewer|Do NOT modify files/);
-	assert.match(prompt.systemPrompt, /<id>reviewer<\/id>/);
+	await handlers.get("before_agent_start")(promptEvent, context(join(repo, "agents", "reviewer")));
+	const prompt = promptEvent.systemPromptOptions.sections.pi_subagent;
+	assert.doesNotMatch(prompt, /You are a senior code reviewer|Do NOT modify files/);
+	assert.match(prompt, /<id>reviewer<\/id>/);
 });

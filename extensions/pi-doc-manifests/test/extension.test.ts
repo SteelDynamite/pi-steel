@@ -7,127 +7,118 @@ import { initTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import extension from "../index";
 import { SHARED_MEMORY_PREAMBLE } from "../src/manifest";
 
-type Entry = { type: string; customType?: string; data?: unknown };
-
-async function docsFixture(): Promise<string> {
+async function fixture() {
   const cwd = await mkdtemp(join(tmpdir(), "pi-doc-manifests-"));
   const docs = join(cwd, ".agents", "docs");
   await mkdir(join(docs, "policies"), { recursive: true });
-  await mkdir(join(cwd, ".agents", "skills", "doc-policy-creator"), { recursive: true });
+  await mkdir(join(cwd, ".agents/skills/doc-policy-creator"), { recursive: true });
   await writeFile(join(docs, "POLICIES.md"), "---\ndoc-manifest:\n  creator-skill: doc-policy-creator\n---\nGuidance.");
-  await writeFile(join(docs, "policies", "one.md"), "---\ndescription: One\n---\n");
-  await writeFile(join(cwd, ".agents", "skills", "doc-policy-creator", "SKILL.md"), "---\nname: doc-policy-creator\ndescription: Create policy documents.\n---\n# Policies\n");
-  return cwd;
-}
-
-test("persists, restores, renders, and injects snapshots by active branch", async () => {
-  const cwd = await docsFixture();
-  try {
-    const handlers = new Map<string, (event: any, ctx: any) => any>();
-    const appended: Array<{ type: string; data: unknown }> = [];
-    let renderer: ((entry: any, options: any, theme: any) => any) | undefined;
-    extension({
-      on(event: string, handler: (event: any, ctx: any) => any) { handlers.set(event, handler); },
-      appendEntry(type: string, data: unknown) { appended.push({ type, data }); },
-      registerEntryRenderer(_type: string, value: (entry: any, options: any, theme: any) => any) { renderer = value; },
-      registerCommand() {},
-    } as unknown as ExtensionAPI);
-
-    let branch: Entry[] = [];
-    const ctx = {
-      cwd,
-      isProjectTrusted: () => true,
-      sessionManager: { getBranch: () => branch },
-    };
-    await handlers.get("session_start")?.({}, { ...ctx, isProjectTrusted: () => false });
-    assert.equal(appended.length, 0);
-
-    await handlers.get("session_start")?.({}, ctx);
-    assert.equal(appended.length, 1);
-    assert.equal(appended[0]?.type, "doc-manifests");
-    const created = appended[0]?.data as { content: string };
-    assert.deepEqual(Object.keys(created), ["content"]);
-    assert.ok(created.content.startsWith(`${SHARED_MEMORY_PREAMBLE}\n\n## Policies`));
-    assert.doesNotMatch(created.content, /<\/?docs-manifest/);
-    const styles: string[] = [];
-    const theme = {
-      bg(name: string, text: string) { styles.push(name); return text; },
-      fg(name: string, text: string) { styles.push(name); return text; },
-    };
-    const component = renderer?.({ data: created }, {}, theme);
-    initTheme(undefined, false);
-    const rendered = component.render(120).join("\n");
-    assert.match(rendered, /\[doc-manifests\][\s\S]*Policies/);
-    assert.doesNotMatch(rendered, /<\/?docs-manifest/);
-    assert.deepEqual(new Set(styles), new Set(["customMessageBg", "customMessageLabel", "customMessageText"]));
-    assert.deepEqual(handlers.get("before_agent_start")?.({ systemPrompt: "Base" }, ctx), {
-      systemPrompt: `Base\n\n<docs-manifest>\n${created.content}\n</docs-manifest>`,
-    });
-
-    const authored = { version: 1, content: "Before <docs-manifest/> <docs-manifest source=\"authored\">inside</docs-manifest > after." };
-    branch = [{ type: "custom", customType: "doc-manifests", data: authored }];
-    await handlers.get("session_start")?.({ reason: "reload" }, ctx);
-    assert.deepEqual(handlers.get("before_agent_start")?.({ systemPrompt: "Base" }, ctx), {
-      systemPrompt: "Base\n\n<docs-manifest>\nBefore &lt;docs-manifest/> &lt;docs-manifest source=\"authored\">inside&lt;/docs-manifest > after.\n</docs-manifest>",
-    });
-
-    branch = [{ type: "custom", customType: "doc-manifests", data: { version: 1, content: "Older" } }, { type: "custom", customType: "doc-manifests", data: created }];
-    for (const reason of ["reload", "resume", "fork"]) {
-      await handlers.get("session_start")?.({ reason }, ctx);
-    }
-    assert.equal(appended.length, 1);
-    assert.deepEqual(handlers.get("before_agent_start")?.({ systemPrompt: "Base" }, ctx), { systemPrompt: `Base\n\n<docs-manifest>\n${created.content}\n</docs-manifest>` });
-
-    branch = [{ type: "custom", customType: "doc-manifests", data: created }, { type: "compaction" }];
-    await handlers.get("session_start")?.({ reason: "reload" }, ctx);
-    assert.equal(appended.length, 1);
-    assert.deepEqual(handlers.get("before_agent_start")?.({ systemPrompt: "Base" }, ctx), { systemPrompt: `Base\n\n<docs-manifest>\n${created.content}\n</docs-manifest>` });
-
-    branch = [];
-    await handlers.get("session_tree")?.({}, ctx);
-    assert.equal(appended.length, 2);
-    assert.match((appended[1]?.data as { content: string }).content, /## Policies/);
-
-    await handlers.get("session_tree")?.({}, { ...ctx, isProjectTrusted: () => false });
-    assert.equal(handlers.get("before_agent_start")?.({ systemPrompt: "Base" }, ctx), undefined);
-    assert.ok(renderer?.({ data: { version: 2, content: "Legacy version ignored" } }, {}, theme));
-    assert.equal(renderer?.({ data: { version: 1 } }, {}, theme), undefined);
-  } finally { await rm(cwd, { recursive: true, force: true }); }
-});
-
-test("does not restore unsupported prototype custom messages", async () => {
-  const cwd = await docsFixture();
-  try {
-    const handlers = new Map<string, (event: any, ctx: any) => any>();
-    const appended: unknown[] = [];
-    extension({
-      on(event: string, handler: (event: any, ctx: any) => any) { handlers.set(event, handler); },
-      appendEntry(_type: string, data: unknown) { appended.push(data); },
-      registerEntryRenderer() {},
-      registerCommand() {},
-    } as unknown as ExtensionAPI);
-    const ctx = {
-      cwd,
-      isProjectTrusted: () => true,
-      sessionManager: { getBranch: () => [{ type: "custom_message", customType: "doc-manifests", content: "obsolete" }] },
-    };
-    await handlers.get("session_start")?.({}, ctx);
-    assert.equal(appended.length, 1);
-  } finally { await rm(cwd, { recursive: true, force: true }); }
-});
-
-test("does not inject without a trusted tree or snapshot", async () => {
+  await writeFile(join(docs, "policies/one.md"), "---\ndescription: One\n---\n");
+  await writeFile(join(cwd, ".agents/skills/doc-policy-creator/SKILL.md"), "---\nname: doc-policy-creator\ndescription: Create policies.\n---\n# Policies\n");
   const handlers = new Map<string, (event: any, ctx: any) => any>();
+  const branch: any[] = [];
+  const appended: any[] = [];
+  let renderer: any;
   extension({
-    on(event: string, handler: (event: any, ctx: any) => any) { handlers.set(event, handler); },
-    appendEntry() {},
-    registerEntryRenderer() {},
+    on(name: string, handler: any) { handlers.set(name, handler); },
+    appendEntry(customType: string, data: unknown) {
+      const entry = { type: "custom", customType, data };
+      branch.push(entry); appended.push(entry);
+    },
+    registerEntryRenderer(_name: string, value: any) { renderer = value; },
     registerCommand() {},
   } as unknown as ExtensionAPI);
-  const cwd = await mkdtemp(join(tmpdir(), "pi-doc-manifests-"));
+  const ctx = { cwd, isProjectTrusted: () => true, sessionManager: { getBranch: () => branch } };
+  const request = async (messages: any[] = [{ role: "system", content: "Base", timestamp: 1 }], context = ctx) =>
+    (await handlers.get("context_with_system")!({ messages }, context)).messages;
+  return { cwd, docs, handlers, branch, appended, renderer, ctx, request, close: () => rm(cwd, { recursive: true, force: true }) };
+}
+
+test("lifecycle records current disk content without restoring stale snapshots or duplicating unchanged entries", async () => {
+  const f = await fixture();
   try {
-    const ctx = { cwd, isProjectTrusted: () => true, sessionManager: { getBranch: () => [] } };
-    await handlers.get("session_start")?.({}, ctx);
-    assert.equal(handlers.get("before_agent_start")?.({ systemPrompt: "Base" }, ctx), undefined);
-  } finally { await rm(cwd, { recursive: true, force: true }); }
+    await f.handlers.get("session_start")!({}, { ...f.ctx, isProjectTrusted: () => false });
+    assert.equal(f.appended.length, 0);
+    f.branch.push({ type: "custom", customType: "doc-manifests", data: { version: 1, content: "Obsolete" } });
+    await f.handlers.get("session_start")!({}, f.ctx);
+    assert.equal(f.appended.length, 1);
+    const content = f.appended[0].data.content;
+    assert(content.startsWith(`${SHARED_MEMORY_PREAMBLE}\n\n## Policies`));
+    assert(!content.includes("Obsolete"));
+    assert.deepEqual(Object.keys(f.appended[0].data), ["content"]);
+    for (const reason of ["reload", "resume", "fork"]) await f.handlers.get("session_start")!({ reason }, f.ctx);
+    f.branch.push({ type: "compaction" });
+    await f.handlers.get("session_tree")!({}, f.ctx);
+    assert.equal(f.appended.length, 1);
+    await writeFile(join(f.docs, "policies/one.md"), "---\ndescription: Changed\n---\n");
+    await f.handlers.get("session_start")!({ reason: "reload" }, f.ctx);
+    assert.equal(f.appended.length, 2);
+    assert.match(f.appended[1].data.content, /Changed/);
+    assert(!f.handlers.has("before_agent_start"));
+  } finally { await f.close(); }
+});
+
+test("every request sees edits, additions and deletions while preserving all other system and tool state", async () => {
+  const f = await fixture();
+  try {
+    const messages: any[] = [
+      { role: "system", content: [{ type: "text", text: "Base" }], timestamp: 1, sections: { other: "Other", pi_doc_manifests: "Stale" }, toolsAdded: [{ name: "read" }] },
+      { role: "user", content: "Question", timestamp: 2 },
+      { role: "system", content: "Later", timestamp: 3, sections: { another: "Keep", pi_doc_manifests: "Later stale" }, toolsRemoved: [{ name: "write" }] },
+    ];
+    const original = structuredClone(messages);
+    const first = await f.request(messages);
+    assert.match(first[0].sections.pi_doc_manifests, /One/);
+    assert.equal(first[0].sections.other, "Other");
+    assert.deepEqual(first[0].content, messages[0].content);
+    assert.deepEqual(first[0].toolsAdded, messages[0].toolsAdded);
+    assert.deepEqual(first[2], { ...messages[2], sections: { another: "Keep" } });
+    assert.strictEqual(first[1], messages[1]);
+    assert.deepEqual(messages, original);
+    await writeFile(join(f.docs, "policies/two.md"), "---\ndescription: Second\n---\n");
+    await writeFile(join(f.docs, "policies/one.md"), "---\ndescription: Updated\n---\n");
+    assert.match((await f.request(first))[0].sections.pi_doc_manifests, /Updated[\s\S]*Second/);
+    await rm(join(f.docs, "policies/one.md"));
+    assert(!((await f.request(first))[0].sections.pi_doc_manifests).includes("one.md"));
+    const untrusted = await f.request(first, { ...f.ctx, isProjectTrusted: () => false });
+    assert.equal(untrusted[0].sections.pi_doc_manifests, undefined);
+    assert.equal(untrusted[2].sections.pi_doc_manifests, undefined);
+    await rm(f.docs, { recursive: true });
+    assert.equal((await f.request(first))[0].sections.pi_doc_manifests, undefined);
+    assert.equal(f.appended.length, 0, "request refreshes must not write history");
+    await mkdir(f.docs);
+    assert.equal((await f.request())[0].sections.pi_doc_manifests, undefined);
+  } finally { await f.close(); }
+});
+
+test("request failures replace stale guidance with a diagnostic and recover on the next request", async () => {
+  const f = await fixture();
+  try {
+    const previous = await f.request();
+    await writeFile(join(f.docs, "POLICIES.md"), `---\ndoc-manifest:\n  creator-skill: doc-policy-creator\n  validation:\n    filename-pattern: ${"a".repeat(65537)}\n---\nGuidance.\n`);
+    const failed = (await f.request(previous))[0].sections.pi_doc_manifests;
+    assert.match(failed, /Manifest refresh failed.*pattern is too long/);
+    assert(!failed.includes("one.md"));
+    await writeFile(join(f.docs, "POLICIES.md"), "---\ndoc-manifest:\n  creator-skill: doc-policy-creator\n---\nGuidance.");
+    assert.match((await f.request())[0].sections.pi_doc_manifests, /one.md/);
+    assert.equal(f.appended.length, 0);
+  } finally { await f.close(); }
+});
+
+test("authored wrapper tags are escaped, while legacy display entries still render as Markdown", async () => {
+  const f = await fixture();
+  try {
+    await writeFile(join(f.docs, "policies/one.md"), '---\ndescription: Before <docs-manifest/> <docs-manifest source="authored">inside</docs-manifest > after\n---\n');
+    const prompt = (await f.request())[0].sections.pi_doc_manifests;
+    assert.equal((prompt.match(/<docs-manifest>/g) ?? []).length, 1);
+    assert.equal((prompt.match(/<\/docs-manifest>/g) ?? []).length, 1);
+    assert.match(prompt, /&lt;docs-manifest\//);
+    const styles: string[] = [];
+    const theme = { bg(name: string, text: string) { styles.push(name); return text; }, fg(name: string, text: string) { styles.push(name); return text; } };
+    initTheme(undefined, false);
+    const component = f.renderer({ data: { version: 1, content: "## Legacy\nDisplay only." } }, {}, theme);
+    assert.match(component.render(120).join("\n"), /\[doc-manifests\][\s\S]*Legacy/);
+    assert.deepEqual(new Set(styles), new Set(["customMessageBg", "customMessageLabel", "customMessageText"]));
+    assert.equal(f.renderer({ data: { version: 1 } }, {}, theme), undefined);
+  } finally { await f.close(); }
 });

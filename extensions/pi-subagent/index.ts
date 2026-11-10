@@ -179,7 +179,9 @@ export default async function (pi: ExtensionAPI) {
 		}
 		const errors = [...discovery.errors, ...discovery.agents.map(validateAgentTools).filter((error): error is string => Boolean(error))];
 		if (errors.length) parts.push(`Subagent configuration errors:\n${errors.map((error) => `- ${error}`).join("\n")}`);
-		return parts.length ? { systemPrompt: `${event.systemPrompt}\n\n${parts.join("\n\n")}` } : undefined;
+		// Own only this section so request-local prompt updates remain composable.
+		if (parts.length) event.systemPromptOptions.sections.pi_subagent = parts.join("\n\n");
+		else delete event.systemPromptOptions.sections.pi_subagent;
 	});
 
 	pi.on("tool_call", async (event, ctx) => {

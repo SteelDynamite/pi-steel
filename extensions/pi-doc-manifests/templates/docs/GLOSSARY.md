@@ -1,7 +1,5 @@
 ---
 doc-manifest:
   creator-skill: doc-glossary-creator
-  validation:
-    filename-pattern: "**/*.md"
 ---
-Non-standard project-specific terms and their definitions.
+Project-specific meanings of non-standard terms. Exclude general dictionary definitions, design explanations and implementation status.

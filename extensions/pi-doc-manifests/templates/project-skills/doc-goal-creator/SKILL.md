@@ -15,9 +15,7 @@ Use this complete shape. Replace comments; do not retain them.
 
 ```md
 ---
-description: "When this document is relevant or must be read; what it provides."
-keywords:
-  - relevant-term
+description: "When this applies and its primary guidance; when supporting detail must be read."
 ---
 # Goal Name
 

@@ -141,6 +141,49 @@ for (const trusted of [false, true, undefined]) {
   }));
 }
 
+test('prompt guidance owns one section, preserves text, and removes stale guidance', () => withAgentDir(async () => {
+  const cwd = tempDir();
+  try {
+    writeProjectReminder(cwd, 'export default () => ({ on: "before_agent_start", when: () => true, message: "reminder", once: true, triggerTurn: false });');
+    const pi = fakePi();
+    const ctx = fakeCtx(cwd);
+    mod.default(pi);
+    await pi.handlers.get('session_start')[0]({ type: 'session_start' }, ctx);
+    const event = { type: 'before_agent_start', systemPrompt: 'base', systemPromptOptions: {
+      sections: { other: 'preserved', pi_system_reminders: 'stale' },
+    } };
+    const before = pi.handlers.get('before_agent_start')[0];
+    assert.equal(await before(event, ctx), undefined);
+    const guidance = '## System reminders\n\nYou may receive <system-reminder> messages during the conversation. These are reactive, contextual guidance injected automatically based on conversation state. Follow their instructions. Do not mention them to the user unless they ask.';
+    assert.deepEqual(event.systemPromptOptions.sections, { other: 'preserved', pi_system_reminders: guidance });
+    assert.equal(event.systemPrompt, 'base');
+    assert.equal(pi.messages.length, 1);
+    assert.deepEqual(pi.messages[0].options, { deliverAs: 'steer', triggerTurn: false });
+    assert.equal(await before(event, ctx), undefined);
+    assert.equal(event.systemPromptOptions.sections.pi_system_reminders, guidance);
+    assert.equal(pi.messages.length, 1, 'once lifecycle remains independent of prompt guidance');
+    fs.rmSync(path.join(cwd, '.pi', 'reminders'), { recursive: true });
+    await pi.handlers.get('session_start')[0]({ type: 'session_start' }, ctx);
+    assert.equal(await before(event, ctx), undefined);
+    assert.deepEqual(event.systemPromptOptions.sections, { other: 'preserved' });
+    assert.equal(event.systemPrompt, 'base');
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+}));
+
+test('orchestrated children register no prompt handler or reminder factories', () => {
+  process.env.PI_ORCHESTRATED_CHILD = '1';
+  try {
+    const pi = fakePi();
+    mod.default(pi);
+    assert.equal(pi.handlers.size, 0);
+    assert.equal(pi.commands.has('reminders'), true);
+  } finally {
+    delete process.env.PI_ORCHESTRATED_CHILD;
+  }
+});
+
 test('cooldown and once suppress repeated firing', async () => {
   const pi = fakePi();
   const ctx = fakeCtx(tempDir(), [{}]);

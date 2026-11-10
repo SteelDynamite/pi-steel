@@ -2,14 +2,12 @@
 doc-manifest:
   creator-skill: doc-techdebt-creator
   priorities: true
+  display-fields: [status]
   validation:
     frontmatter:
       status:
         type: enum
         values: [backlog, in-progress]
-      keywords:
-        type: string[]
     required-sections: [Debt, Impact, Why we took it, Retirement condition]
-    filename-pattern: "**/*.md"
 ---
-Necessary work intentionally postponed for a documented reason. Delete the record when its retirement condition is met, preserving durable outcomes where appropriate.
+Known deficiencies intentionally left unresolved, with reasons and observable retirement conditions. Keep the record authoritative during in-progress remediation; delete it when resolved, preserving useful current outcomes elsewhere.

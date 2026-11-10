@@ -41,6 +41,8 @@ Install/update `hc` separately from <https://herdr.dev/core/> and ensure it is o
 
 The guidance directs Pi helper launches to explicitly set `PI_ORCHESTRATED_CHILD=1` and the intended `PI_CODING_AGENT_DIR`, and to choose cwd and project trust deliberately. This is agent guidance, not a launcher guarantee. Do not assume the daemon inherits the caller's environment or that helpers inherit parent `-e` flags. Model-driven `hc` delegation and non-Linux behavior require separate runtime validation; successful manual discovery alone does not establish them.
 
+Native prompt guidance uses the `pi_subagent` system-prompt section; Herdr handoff uses `herdr_delegation`. Each hook replaces only its own section, preserving other extensions' sections and per-request prompt updates. Empty native guidance removes its section. These hooks require Pi's structured `systemPromptOptions.sections` API; Steel's integration tests target Pi 1.4.0.
+
 ## Tool
 
 In native mode, a file-backed `subagent` call looks like:

@@ -143,11 +143,12 @@ test("extension lifecycle keeps model and TUI manifests identical", () => withCl
 		await handlers.get("session_start")[0]({ reason: "startup" }, ctx);
 		await handlers.get("session_start")[0]({ reason: "reload" }, ctx);
 		assert.equal(appended.length, 1);
-		const prompt = await handlers.get("before_agent_start")[0]({
+		const event = {
 			systemPrompt: "base",
-			systemPromptOptions: { contextFiles: [], selectedTools: [], toolSnippets: {} },
-		}, ctx);
-		assert.equal(prompt.systemPrompt.endsWith(appended[0].data.content), true);
+			systemPromptOptions: { contextFiles: [], selectedTools: [], toolSnippets: {}, sections: {} },
+		};
+		assert.equal(await handlers.get("before_agent_start")[0](event, ctx), undefined);
+		assert.equal(event.systemPromptOptions.sections.pi_subagent.endsWith(appended[0].data.content), true);
 		visibleEntries = [];
 		await handlers.get("session_tree")[0]({}, ctx);
 		visibleEntries = [];
@@ -193,14 +194,15 @@ test("untrusted model prompts do not advertise locational roots", () => withClea
 			registerCommand() {}, registerTool() {}, registerEntryRenderer() {}, appendEntry() {},
 		};
 		subagentExtension(pi);
-		const prompt = await handlers.get("before_agent_start")({
+		const event = {
 			systemPrompt: "base",
-			systemPromptOptions: { contextFiles: [], selectedTools: [], toolSnippets: {} },
-		}, {
+			systemPromptOptions: { contextFiles: [], selectedTools: [], toolSnippets: {}, sections: {} },
+		};
+		assert.equal(await handlers.get("before_agent_start")(event, {
 			cwd: root,
 			isProjectTrusted: () => false,
-		});
-		assert.doesNotMatch(prompt.systemPrompt, /Secret route|Available locational agents/);
+		}), undefined);
+		assert.doesNotMatch(event.systemPromptOptions.sections.pi_subagent, /Secret route|Available locational agents/);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

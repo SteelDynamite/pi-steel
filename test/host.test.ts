@@ -300,7 +300,8 @@ async function exerciseHost(): Promise<void> {
       await projectSession.bindExtensions({ onError: error => projectErrors.push(error) });
       if (root === sourceRoot) assert(projectLoader.getAgentsFiles().agentsFiles.some(file => file.path === join(root, "AGENTS.md")));
       const before = await projectSession.extensionRunner.emitBeforeAgentStart({ messageType: "user", prompt: "Inspect collection discovery", images: undefined }, { cwd: root });
-      const prompt = before.systemPromptOptions.forceSystemPrompt ?? "";
+      const prompt = before.systemPromptOptions.sections.pi_subagent ?? "";
+      assert.equal(before.systemPromptOptions.forceSystemPrompt, undefined);
       assert(!prompt.includes("Subagent configuration errors"), prompt);
       assert(!JSON.stringify(projectSession.sessionManager.getEntries()).includes("## Available locational agents"));
       for (const name of ["reviewer", "scout", "worker"]) assert(prompt.includes(`<id>${name}</id>`), name);
@@ -343,6 +344,6 @@ async function checkState(session: AgentSession, loader: DefaultResourceLoader, 
   assert.equal(session.getActiveToolNames().includes("subagent"), agents);
   if (agents) assert.equal(session.extensionRunner.getToolDefinition("subagent")?.exposure, "model-only");
   const before = await session.extensionRunner.emitBeforeAgentStart({ messageType: "user", prompt: "Inspect resource availability", images: undefined }, { cwd: session.extensionRunner.createContext().cwd, selectedTools: session.getActiveToolNames() });
-  for (const name of ["reviewer", "scout", "worker"]) assert.equal((before.systemPromptOptions.forceSystemPrompt ?? "").includes(`<id>${name}</id>`), agents, `${name} behavioral agent`);
+  for (const name of ["reviewer", "scout", "worker"]) assert.equal((before.systemPromptOptions.sections.pi_subagent ?? "").includes(`<id>${name}</id>`), agents, `${name} behavioral agent`);
   assert.deepEqual(errors, []);
 }

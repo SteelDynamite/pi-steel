@@ -61,12 +61,14 @@ for (const child of [false, true]) test(`hc handoff preloads guidance without di
 	assert.deepEqual(result.tools, []);
 	assert.equal(result.commands.size, 0);
 	assert.deepEqual([...result.handlers.keys()], ["before_agent_start"]);
-	const event = { systemPrompt: "untouched", systemPromptOptions: { sections: { other: "preserved" } } };
+	const event = { systemPrompt: "untouched", systemPromptOptions: { sections: { other: "preserved", herdr_delegation: "stale" } } };
 	const before = result.handlers.get("before_agent_start")[0];
 	assert.equal(before(event, result.ctx), undefined, "do not replace the complete system prompt");
 	const section = event.systemPromptOptions.sections.herdr_delegation;
 	assert.equal(event.systemPrompt, "untouched");
 	assert.equal(event.systemPromptOptions.sections.other, "preserved");
+	assert.deepEqual(Object.keys(event.systemPromptOptions.sections).sort(), ["herdr_delegation", "other"]);
+	assert.notEqual(section, "stale");
 	assert.match(section, /PI_ORCHESTRATED_CHILD=1/);
 	assert.match(section, /not automatically inherited/);
 	assert.match(section, /batch independent lookups/);

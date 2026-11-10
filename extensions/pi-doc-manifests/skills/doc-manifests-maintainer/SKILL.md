@@ -1,35 +1,29 @@
 ---
 name: doc-manifests-maintainer
-description: "Audit and collaboratively update an existing pi-doc-manifests project to current documentation intentions. Use for maintenance, missing or stale creator skills, summary-only document descriptions, legacy metadata, guidance drift, or merging Decisions and Policies into Standards."
+description: "Audit and maintain an existing pi-doc-manifests project. Use for stale creator skills, ineffective descriptions, metadata or guidance drift, structural diagnostics, or consolidating categories."
 ---
 
 # Documentation Manifest Maintenance
 
-1. Read project instructions, the injected documentation manifest, `.agents/docs/`, and every creator skill declared by a category.
-2. Read current package guidance in [`../../README.md`](../../README.md), [`../doc-manifests-designer/SKILL.md`](../doc-manifests-designer/SKILL.md), and relevant files under [`../../templates/`](../../templates/). Treat them as current intentions, not authority to overwrite project-specific choices.
+1. Read project instructions, the injected manifest, relevant document bodies, and the creator skills declared by affected categories.
+2. Read [shared guidance](../../src/AGENTDOCS.md), [package behavior](../../README.md), [category design](../doc-manifests-designer/SKILL.md), and relevant [templates](../../templates/). They express defaults, not permission to overwrite intentional project-specific choices.
 3. Audit for:
-   - every paired category declaring `doc-manifest.creator-skill` and the exact `.agents/skills/<name>/SKILL.md` existing with matching `name`, non-empty `description`, and guidance suited to the category;
-   - generated creator skills that no longer express current intentions;
-   - document descriptions that summarize content without routing when it is relevant or must be read;
-   - category declarations or validation that no longer fit their documents;
-   - legacy `.agents/docs/.pi-doc-manifests-layout-version` markers and `doc-manifest.version` fields;
-   - duplicated routing outside the injected manifest.
-4. Classify findings as:
-   - **mechanical** — obsolete metadata, an obvious missing creator-skill association, or unchanged generated boilerplate;
-   - **semantic** — descriptions, missing or customized creator skills, or guidance requiring project judgment;
-   - **structural** — category responsibility, layout, or validation changes.
-5. Present a numbered maintenance plan, identify customization and uncertainty, and ask the user to approve or revise the proposed changes before editing.
-6. Apply only approved changes. Remove legacy markers and declaration versions. Add approved creator-skill associations and create or reconcile their concise project-local skills without replacing customization. Update unchanged generated artifacts directly. Read document bodies before revising their descriptions, and use the declared creator skill for substantive document changes.
-7. Load `doc-manifests-designer` for structural findings and retain its explicit approval gates. Do not create, rename, merge, delete, or materially expand categories, or invalidate documents through validation changes, without approval.
-8. Verify declarations and documents, run `git diff --check` when Git is available, and use a fresh Pi session to confirm the manifest has no unexpected diagnostics. Report changed files, preserved customization, and unresolved choices.
+   - missing or invalid `doc-manifest.creator-skill` associations and exact project-local skill files;
+   - descriptions that omit applicability or useful primary guidance, or require a body read when the description could suffice;
+   - creator skills, category boundaries and validation that disagree with intended authoring behavior;
+   - source summaries, logs, dated evidence, session history, brittle source references, or duplicated routing;
+   - source referring to agent documentation or skills;
+   - unused metadata, including keyword requirements, and legacy `.pi-doc-manifests-layout-version` markers or `doc-manifest.version` fields;
+   - default approval gates where project instructions impose none.
+4. Distinguish **mechanical** corrections from **semantic** questions and **structural** changes. Use `doc-manifests-designer` for structural work and affected category creator skills for substantive document changes. Act autonomously within clear project intent; ask when intent is unclear or project instructions require approval.
+5. Reconcile declarations, documents and skills together. Remove unused metadata and obsolete guidance without discarding useful current knowledge. Preserve intentional custom rules and approval gates. Do not mistake a difference from a shipped template for a defect.
+6. Validate declarations and documents, check links, and run `git diff --check` when Git is available. Verify the next generated manifest has no unexpected diagnostics; reload Pi resources when skills change. Report changed files, preserved customization and unresolved choices.
 
-## Optional Decisions/Policies merge
+## Optional category consolidation
 
-Initialization now offers Standards for consequential design choices and mandatory conventions. Existing Decisions, Policies, numbered filenames, and custom categories remain supported; their presence is not a defect. Offer this migration when relevant, never apply it automatically or use `/doc-manifests init` to upgrade an existing tree.
+Existing Decisions, Policies, numbered filenames and custom categories remain supported; their presence is not a defect. Do not use `/doc-manifests init` to upgrade an existing tree.
 
-1. Read both declarations, their creator skills, and document bodies; inspect any existing Standards category. Load `doc-manifests-designer`. Propose `standards/`, `STANDARDS.md`, and `doc-standard-creator` using the current templates, reconciled with project customization.
-2. Present an old-to-new path map. Strip decision-number prefixes for unnumbered kebab-case names, preserving meaningful title text. Check destination and case-insensitive collisions, including nested paths; ask about conflicts rather than overwrite or silently consolidate documents. If already migrated, leave it unchanged.
-3. Identify references in links, project instructions, and other creator skills. Propose flexible sections rather than combining the old required-heading lists. Preserve custom metadata and constraints unless their change is explicitly approved. Category merging does not require document merging or body rewrites.
-4. Obtain approval for the complete plan before editing. Back up affected files outside the scanned docs/skills trees, including Git-ignored files; Git alone may not preserve them.
-5. Apply the approved moves and declarations, reconcile the creator skill, and update current references. Preserve historical provenance paths and old session data. Remove replaced declarations, empty source directories, and old creator skills only after verifying document preservation and that no current references or category associations still need them.
-6. Check the path map, content preservation, links, and validation; then start a new Pi session to verify the manifest and skill discovery. Reloading or resuming a session may retain its old manifest snapshot. Report backup location, conflicts left unresolved, and any intentionally retained categories or skills.
+1. Read the categories, creator skills and document bodies. Confirm consolidation serves project intent rather than enforcing the example taxonomy. Follow project-specific gates and ask about ambiguous scope.
+2. Prepare an old-to-new path map. Check destination and case-insensitive collisions, including nested paths, before moving files. Protect affected files outside the scanned tree when recovery is needed, including Git-ignored files.
+3. Preserve useful current meaning, not chronology. For Standards, use the three ordered sections in its creator skill, distinguishing requirements from preferences. Do not invent missing rationale. Remove redundant metadata and update references and creator-skill associations together.
+4. Remove replaced declarations and unused creator skills only after checking current knowledge and references. Leave existing session data untouched. Validate the result and reload resource discovery for changed skills. If already consolidated, leave it unchanged.

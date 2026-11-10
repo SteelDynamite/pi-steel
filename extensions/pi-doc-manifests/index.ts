@@ -21,8 +21,6 @@ function manifestForPrompt(content: string): string {
 }
 
 export default function (pi: ExtensionAPI) {
-  let snapshot: string | undefined;
-
   pi.registerEntryRenderer<Snapshot>("doc-manifests", (entry, _options, theme) => {
     if (typeof entry.data?.content !== "string") return undefined;
     const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
@@ -34,15 +32,13 @@ export default function (pi: ExtensionAPI) {
     return box;
   });
 
-  const restoreOrCreate = async (ctx: ExtensionContext, rebuild = false) => {
-    snapshot = undefined;
+  // Lifecycle entries are display records only; requests always read the current files.
+  const recordManifest = async (ctx: ExtensionContext) => {
     if (!ctx.isProjectTrusted()) return;
-    if (!rebuild) {
-      snapshot = snapshotFromBranch(ctx.sessionManager.getBranch());
-      if (snapshot !== undefined) return;
+    const content = await buildManifest(ctx.cwd);
+    if (content !== undefined && content !== snapshotFromBranch(ctx.sessionManager.getBranch())) {
+      pi.appendEntry("doc-manifests", { content } satisfies Snapshot);
     }
-    snapshot = await buildManifest(ctx.cwd);
-    if (snapshot !== undefined) pi.appendEntry("doc-manifests", { content: snapshot } satisfies Snapshot);
   };
 
   pi.registerCommand("doc-manifests", {
@@ -61,21 +57,37 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify(result.message, "warning");
         return;
       }
-      await restoreOrCreate(ctx, true);
-      ctx.ui.notify("Initialized example .agents/docs categories and project-local doc-* skills. Start a new Pi session to load the project skills.", "info");
+      await recordManifest(ctx);
+      ctx.ui.notify("Initialized example .agents/docs categories and project-local doc-* skills. Reload Pi resources to load the project skills.", "info");
     },
   });
 
   pi.on("session_start", async (_event, ctx) => {
-    await restoreOrCreate(ctx);
+    await recordManifest(ctx);
   });
 
   pi.on("session_tree", async (_event, ctx) => {
-    await restoreOrCreate(ctx);
+    await recordManifest(ctx);
   });
 
-  pi.on("before_agent_start", (event) => {
-    if (snapshot === undefined) return;
-    return { systemPrompt: `${event.systemPrompt}\n\n${manifestForPrompt(snapshot)}` };
+  pi.on("context_with_system", async (event, ctx) => {
+    if (event.messages[0]?.role !== "system") return;
+    let content: string | undefined;
+    if (ctx.isProjectTrusted()) {
+      try {
+        content = await buildManifest(ctx.cwd);
+      } catch (error) {
+        content = `## Diagnostics\n\nManifest refresh failed: ${JSON.stringify(error instanceof Error ? error.message : String(error))}. Do not rely on earlier manifest listings.`;
+      }
+    }
+    return {
+      messages: event.messages.map((message, index) => {
+        if (message.role !== "system") return message;
+        // Remove earlier patches too, so a later system message cannot restore stale guidance.
+        const { pi_doc_manifests: _previous, ...sections } = message.sections ?? {};
+        if (index === 0 && content !== undefined) sections.pi_doc_manifests = manifestForPrompt(content);
+        return { ...message, sections };
+      }),
+    };
   });
 }
