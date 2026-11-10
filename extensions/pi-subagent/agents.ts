@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { locationalAgentsEnabled } from "./constants.ts";
 import { getAgentDir, parseFrontmatter } from "./pi-compat.ts";
 
-export type AgentOrigin = "bundled" | "user" | "project" | "locational";
+export type AgentOrigin = "bundled" | "user" | "project" | "locational" | "custom";
 export type AgentKind = "behavioral" | "locational";
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export type ThinkingLevel = typeof THINKING_LEVELS[number];

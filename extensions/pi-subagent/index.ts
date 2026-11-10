@@ -29,7 +29,7 @@ import { getAgentDir, parseFrontmatter, type ExtensionAPI, type ExtensionContext
 import { formatBehavioralAgentManifest, formatLocalLocationalPrompt } from "./prompt.ts";
 import { renderSubagentCall, renderSubagentResult } from "./render.ts";
 import { getResultOutput, isFailedResult, makeErrorResult } from "./result.ts";
-import { SubagentParams } from "./schema.ts";
+import { SubagentParams, type AgentOverrides, type CustomAgent } from "./schema.ts";
 import {
 	getMainSessionKey,
 	persistSubagentState,
@@ -45,6 +45,8 @@ export type SubagentToolParams = {
 	id?: string;
 	session?: SessionIntent;
 	task?: string;
+	overrides?: AgentOverrides;
+	custom?: CustomAgent;
 	contextDocs?: string[];
 	includeLocationalAgents?: boolean;
 };
@@ -218,8 +220,8 @@ export default async function (pi: ExtensionAPI) {
 		exposure: "model-only",
 		label: "Subagent",
 		description: locationalAgentsEnabled()
-			? "Delegate exactly one task to an isolated behavioral or locational Pi agent and wait for its result. Requires id, session, and task. Behavioral agents inherit the caller directory. Locational agents use a caller-relative or absolute source-root id containing SUBAGENTS.md and run from that root. Behavioral children discover no locational agents unless includeLocationalAgents is true."
-			: "Delegate exactly one task to an isolated behavioral Pi agent and wait for its result. Requires id, session, and task. Behavioral agents inherit the caller directory. Locational agents are disabled; includeLocationalAgents cannot enable them.",
+			? "Delegate exactly one task to an isolated behavioral or locational Pi agent and wait for its result. Requires id, session, and task. Behavioral agents inherit the caller directory. Locational agents use a caller-relative or absolute source-root id containing SUBAGENTS.md and run from that root. Behavioral children discover no locational agents unless includeLocationalAgents is true. Optional overrides customize an existing behavioral role; custom defines a new inline role. Both require session new, are mutually exclusive, and never fall back from an explicit per-call model."
+			: "Delegate exactly one task to an isolated behavioral Pi agent and wait for its result. Requires id, session, and task. Behavioral agents inherit the caller directory. Locational agents are disabled; includeLocationalAgents cannot enable them. Optional overrides customize an existing role; custom defines a new inline role. Both require session new, are mutually exclusive, and never fall back from an explicit per-call model.",
 		promptSnippet: "Delegate one foreground-managed task to an isolated Pi agent and wait for its result",
 		parameters: SubagentParams,
 		async execute(_toolCallId: string, params: SubagentToolParams, signal: AbortSignal | undefined, onUpdate: OnUpdateCallback | undefined, ctx: ExtensionContext) {
@@ -258,6 +260,8 @@ export default async function (pi: ExtensionAPI) {
 				onUpdate,
 				makeDetails,
 				params.includeLocationalAgents ?? false,
+				undefined,
+				params,
 			);
 			if (isFailedResult(result)) {
 				return {

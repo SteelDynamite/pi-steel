@@ -14,6 +14,10 @@ Keep locational discovery, path delegation, owner prompts, and boundary guards d
 
 Locational tests explicitly opt in. Preserve default-off installed-copy versus separate-source-checkout regression coverage; do not hide misclassification with broad directory exclusions or project symlinks. Retained opt-in guards are not an OS sandbox; see README for limits.
 
+## One-off configurations
+
+Keep `overrides` (existing behavioral role; model/thinking/tools only) and `custom` (new inline role; required literal instructions) mutually exclusive and new-session-only. Per-call fields win after role/caller policy. Never mutate definitions or resumable records, expand inline file includes, or accept locational identities/lifecycle overrides. Explicit per-call models require exact available provider/model identity with no fallback. Preserve the temporary child input guard against Pi CLI fuzzy model substitution and clean it up with the prompt. Empty tool lists mean `--no-tools`; tool selection is not a sandbox. Keep model/configuration visible in results and verify actual host behavior, not only fake child argv.
+
 ## Model configuration maintenance
 
 Pin explicit OpenAI model selectors as `openai/<model-id>`; preserve model IDs and declared thinking levels. Behavioral `whenCallerModelId` accepts a literal model ID or a nonempty YAML list of literal IDs, not provider-qualified selectors. `thenModel: caller` preserves the immediate caller's provider; an explicit `thenModel: provider/model` pins the target provider. Bundled rules match Astra and Sol 6.1: scout uses `openai/gpt-6.1-sol` low, worker the same model medium, reviewer `openai/gpt-6-astra` xhigh. Keep conditional policy in definitions, never agent-name dispatch or speed-dependent matching. See README's behavioral caller overrides for field validation and resume semantics.

@@ -32,7 +32,7 @@ test("extension registers singular settings and the public subagent tool", () =>
 	const theme = { fg: (_color, text) => text, bold: (text) => text };
 	assert.match(tools[0].renderCall({ id: "scout", session: "new", task: "inspect" }, theme, {}).render(120).join("\n"), /^subagent scout/);
 	assert.deepEqual([...commands.keys()], ["subagent-settings"]);
-	assert.deepEqual(Object.keys(SubagentParams.properties).sort(), ["contextDocs", "id", "includeLocationalAgents", "session", "task"]);
+	assert.deepEqual(Object.keys(SubagentParams.properties).sort(), ["contextDocs", "custom", "id", "includeLocationalAgents", "overrides", "session", "task"]);
 	assert.deepEqual([...SubagentParams.required].sort(), ["id", "session", "task"]);
 	assert.equal(SubagentParams.additionalProperties, false);
 	for (const removed of ["commands", "tasks", "chain", "cwd", "handoffDocs", "agentScope", "confirmProjectAgents"]) {

@@ -4,6 +4,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { Message } from "@earendil-works/pi-ai";
+import { Value } from "typebox/value";
+import { AgentOverridesSchema, CustomAgentSchema, type AgentOverrides, type CustomAgent } from "./schema.ts";
 import type { AgentConfig } from "./agents.ts";
 import { getAgentInstructionsFileName, resolveLocationalAgentId } from "./agents.ts";
 import {
@@ -151,6 +153,10 @@ export function processChildJsonEvent(event: any, result: SingleResult, emitUpda
 		if (message.role === "toolResult" && result.messages.some((existing: any) => existing.role === "toolResult" && existing.toolCallId === message.toolCallId)) return;
 		result.messages.push(message);
 		if (message.role === "assistant" || message.role === "toolResult") addChildUsage(result, (message as { usage?: SingleResult["nativeUsage"] }).usage);
+		if (result.configuration && event.message.role === "custom" && event.message.customType === "subagent-model-mismatch") {
+			result.stopReason = "error";
+			result.errorMessage = event.message.content;
+		}
 		if (message.role === "assistant") {
 			if (progress) result.tokenSpeed = progress.speed.endCall(message.usage?.output);
 			result.usage.turns++;
@@ -275,8 +281,23 @@ export async function runDelegation(
 	makeDetails: (results: SingleResult[]) => SubagentDetails,
 	includeLocationalAgentsInBehavioralChild: boolean,
 	now: () => number = () => performance.now(),
+	configuration: { overrides?: AgentOverrides; custom?: CustomAgent } = {},
 ): Promise<SingleResult> {
-	const agent = resolveAgent(defaultCwd, agents, agentId);
+	const { overrides, custom } = configuration;
+	if (overrides !== undefined && custom !== undefined) return makeErrorResult(agentId, task, "overrides and custom are mutually exclusive.", session);
+	const mode = custom !== undefined ? "custom" : overrides !== undefined ? "overrides" : undefined;
+	const oneOff = custom ?? overrides;
+	if (mode) {
+		if (session !== "new") return makeErrorResult(agentId, task, "One-off configurations require session: new and cannot be resumed.", session);
+		if (!Value.Check(mode === "custom" ? CustomAgentSchema : AgentOverridesSchema, oneOff)) return makeErrorResult(agentId, task, `Invalid ${mode} configuration. Use one exact provider/model, a supported thinking level, and unique tool names; custom requires nonempty instructions, overrides requires at least one field. Unknown fields are not allowed.`, session);
+		if (custom && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(agentId)) return makeErrorResult(agentId, task, "Custom id must be a lowercase kebab-case label, not a path.", session);
+	}
+	let agent = resolveAgent(defaultCwd, agents, agentId);
+	if (custom) {
+		if (agent || agents.some((item) => item.id === agentId)) return makeErrorResult(agentId, task, `Custom id "${agentId}" collides with an existing agent; choose an unused label or use overrides.`, session);
+		agent = { id: agentId, description: "", kind: "behavioral", origin: "custom", manifest: false, resumable: false, systemPrompt: custom.instructions, filePath: `custom:${agentId}`, rootDir: defaultCwd };
+	}
+	if (mode && agent?.kind === "locational") return makeErrorResult(agentId, task, "One-off configurations are behavioral-only; locational agents cannot be customized.", session);
 	if (!agent) {
 		const available = agents.map((item) => `"${item.id}"`).join(", ") || "none";
 		return makeErrorResult(agentId, task, `Unknown subagent id: "${agentId}". Available agents: ${available}.`, session);
@@ -286,9 +307,20 @@ export async function runDelegation(
 	if (currentDepth >= MAX_SUBAGENT_DEPTH) return makeErrorResult(agent.id, task, `Subagent recursion limit reached (max depth ${MAX_SUBAGENT_DEPTH}).`, session);
 	const loopError = getLocationalLoopError(agent);
 	if (loopError) return makeErrorResult(agent.id, task, loopError, session);
+	// Derive role policy first, then apply invocation-only settings without changing the definition.
+	const resolvedModel = resolveAgentModel(agent, ctx);
+	if (oneOff) {
+		if (oneOff.model !== undefined) {
+			const exact = resolveAvailableModel([oneOff.model], ctx, false);
+			if (!exact.model) return makeErrorResult(agent.id, task, `Requested model "${oneOff.model}" is unavailable or unauthenticated; no fallback was attempted.`, session);
+			Object.assign(resolvedModel, exact, { source: "agent", warning: undefined, fallbackModel: undefined, fallbackContextWindow: undefined });
+		}
+		if (!resolvedModel.model) return makeErrorResult(agent.id, task, "No effective model for one-off agent; specify an available provider/model.", session);
+		resolvedModel.thinking = oneOff.thinking ?? resolvedModel.thinking;
+		agent = { ...agent, tools: oneOff.tools ?? agent.tools, resumable: false };
+	}
 	const toolError = validateAgentTools(agent);
 	if (toolError) return makeErrorResult(agent.id, task, toolError, session);
-	const resolvedModel = resolveAgentModel(agent, ctx);
 	const required = getRequiredSessionIntent(ctx, agent);
 	if (session !== required.intent) {
 		return makeErrorResult(agent.id, task, formatWrongIntentReason(agent, session, required.intent, required.reason), session, {
@@ -337,13 +369,16 @@ export async function runDelegation(
 		if (sessionId) args.push("--session-id", sessionId);
 		else args.push("--no-session");
 		if (model.model) args.push("--model", model.model);
+		if (mode && model.model) args.push("--provider", model.model.slice(0, model.model.indexOf("/")));
 		if (resolvedModel.thinking) args.push("--thinking", resolvedModel.thinking);
 		if (agent.tools?.length) args.push("--tools", agent.tools.join(","));
+		else if (agent.tools) args.push("--no-tools");
 		const result: SingleResult = {
 			agent: agent.id,
 			agentOrigin: agent.origin,
 			agentOverride: agent.overrides,
 			agentThinking: resolvedModel.thinking,
+			...(mode ? { configuration: mode, agentTools: agent.tools ? [...agent.tools] : undefined } : {}),
 			sessionIntent: session,
 			task,
 			exitCode: -1,
@@ -358,12 +393,26 @@ export async function runDelegation(
 		let promptDir: string | undefined;
 		let promptPath: string | undefined;
 		try {
-			if (agent.systemPrompt.trim()) {
+			if (agent.systemPrompt.trim() || mode) {
 				const prompt = agent.kind === "locational"
 					? `# ${getAgentInstructionsFileName()}\n\nThe following ${getAgentInstructionsFileName()} is more specific than any AGENTS.md loaded from the same folder. Follow it for this source root.\n\n${agent.systemPrompt}`
 					: agent.systemPrompt;
 				({ dir: promptDir, filePath: promptPath } = await writePromptToTempFile(agent.id, prompt));
-				args.push("--append-system-prompt", promptPath);
+				if (prompt.trim()) args.push("--append-system-prompt", promptPath);
+				if (mode) {
+					// Pi CLI model lookup is fuzzy. Check the child's resolved identity before its first model request.
+					const guardPath = path.join(promptDir, "exact-model.mjs");
+					await fs.promises.writeFile(guardPath, `export default function(pi) {
+	pi.on("input", (_event, ctx) => {
+		const actual = ctx.model ? ctx.model.provider + "/" + ctx.model.id : "(none)";
+		const expected = ${JSON.stringify(model.model)};
+		if (actual === expected) return { action: "continue" };
+		pi.sendMessage({ customType: "subagent-model-mismatch", content: "Requested exact model " + expected + "; child resolved " + actual + ". Refusing model substitution.", display: false });
+		return { action: "handled" };
+	});
+}\n`, { encoding: "utf8", mode: 0o600 });
+					args.push("--extension", guardPath);
+				}
 			}
 			args.push(`Task: ${task}`);
 			if (signal?.aborted) {

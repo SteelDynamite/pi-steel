@@ -5,6 +5,7 @@ Foreground-managed behavioral Pi-agent delegation, with optional locational agen
 ## Features
 
 - Behavioral discovery precedence: bundled, user, then trusted-project definitions.
+- One-off model/thinking/tool overrides for existing roles, or inline agents with custom instructions.
 - Default-off locational `SUBAGENTS.md` discovery, source-root boundaries, and recursion guards.
 - One-agent progress, abort propagation, context-limit reporting, resumable sessions, and one same-session locational-model fallback.
 - A trusted-parent TUI locational-agent manifest matching the parent prompt.
@@ -42,7 +43,7 @@ The guidance directs Pi helper launches to explicitly set `PI_ORCHESTRATED_CHILD
 
 ## Tool
 
-In native mode, `subagent` accepts exactly:
+In native mode, a file-backed `subagent` call looks like:
 
 ```json
 {
@@ -54,13 +55,58 @@ In native mode, `subagent` accepts exactly:
 }
 ```
 
-`id`, `session`, and `task` are required. `contextDocs` and `includeLocationalAgents` are optional. Use `resume` only when the prior result requests it. Behavioral agents inherit the caller directory. With locational support enabled, locational-agent ids are absolute or caller-relative folders containing `SUBAGENTS.md` and run from that source root. `includeLocationalAgents` controls behavioral-child advertising only; it cannot enable locational support.
+`id`, `session`, and `task` are required. `contextDocs`, `includeLocationalAgents`, `overrides`, and `custom` are optional; `overrides` and `custom` are mutually exclusive. Use `resume` only when the prior result requests it. Behavioral agents inherit the caller directory. With locational support enabled, locational-agent ids are absolute or caller-relative folders containing `SUBAGENTS.md` and run from that source root. `includeLocationalAgents` controls behavioral-child advertising only; it cannot enable locational support.
 
 Use ordinary `bash` calls for shell commands and sibling/later `subagent` calls for concurrent/sequential delegation. Different agents may run concurrently. A resumable agent allows one active call per parent/agent and per saved child session ID in this extension runtime; overlapping calls fail immediately rather than queue. Reservations cover launcher/prompt preparation, process close, fallback, and state persistence. They are not cross-process filesystem locks.
 
 Failed or aborted resumable calls discard their saved reuse record and request `session: "new"`; successful calls retain threshold-based reuse. Process errors remain owned until Node reports `close`, including failed spawns. Cancellation remains the primary outcome when termination also reports an error. No execution deadline or process-tree supervisor is provided.
 
 Final answers join all nonempty text blocks of the last text-bearing assistant message in order; thinking is excluded and tool-only tails do not erase the answer. Native tool-result usage includes child assistant calls, descendant tool-result usage, and failed fallback attempts, so host session totals include delegated work. Displayed per-attempt usage and token speed remain separate. Nested progress retains at most 16 calls, each serialized call bounded to 20 KiB; oversized details/errors are visibly truncated. This does not cap the child's overall stdout, transcript, or execution.
+
+## One-off configurations
+
+Use `overrides` to keep an existing behavioral role's instructions while changing its model, thinking level, or tools for one call:
+
+```json
+{
+  "id": "reviewer",
+  "session": "new",
+  "task": "Audit pi-doc-manifests without changing files.",
+  "overrides": {
+    "model": "openrouter/anthropic/claude-fable-5.2",
+    "thinking": "high",
+    "tools": ["read", "grep", "find", "ls"]
+  }
+}
+```
+
+Use `custom` to supply a new role without creating a definition file:
+
+```json
+{
+  "id": "intent-auditor",
+  "session": "new",
+  "task": "Identify intended behavior, contradictions, and open questions.",
+  "custom": {
+    "instructions": "Perform a read-only audit. Cite evidence and separate explicit intent from inference.",
+    "model": "openrouter/anthropic/claude-fable-5.2",
+    "thinking": "high",
+    "tools": ["read", "grep", "find", "ls"]
+  }
+}
+```
+
+- Both forms require `session: "new"`. They neither reuse nor replace an existing role's resumable session and do not create a reusable definition or saved one-off configuration. The parent transcript still records the call and result.
+- `overrides` requires at least one of `model`, `thinking`, or `tools`. The selected definition and its caller-model rule resolve first; supplied fields win afterward. Omitted fields retain the effective role defaults, including ordinary model-fallback warnings when no per-call model is supplied. Role instructions cannot be replaced through `overrides`.
+- `custom.instructions` is required and nonblank. It is literal appended system text, not a replacement for Pi's base instructions; `@file` includes are not expanded. Its `id` must be an unused lowercase kebab-case label. A colliding role requires `overrides`, not `custom`.
+- A supplied `model` is one exact, case-sensitive `provider/model` from the parent's available registry, including model IDs containing slashes as above. Bare IDs, candidate lists, fuzzy patterns, and unavailable/unauthenticated selections fail before launch. No caller-model retry follows a one-off provider failure. Add newly released models through Pi's model configuration/catalog, not through the tool.
+- Pi's CLI can fuzzy-match models when child resources differ. A temporary child extension checks the resolved identity at input time and rejects substitutions before the initial model request. This pins startup identity, not later deliberate model changes or a provider's internal routing. It does not forward arbitrary parent `-e` flags or make parent-only providers available in the child.
+- Omitted custom `model` uses the caller model; omitted custom `thinking` and `tools` use Pi child defaults. Supported thinking levels are `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; Pi clamps to model support.
+- `tools` contains unique, exact known names; `[]` sends `--no-tools`. A nonempty list uses Pi's `--tools` selection. This is not an OS sandbox or a promise that all named parent-only tools exist in the child. Normal package discovery and Pi's MCP/tool-exposure rules still apply; a selected `bash` can write files.
+- One-offs are behavioral-only, run in the caller directory, and retain ordinary trust, recursion, cancellation, progress, and orchestrated-child protections. `includeLocationalAgents` retains its existing default-off gate; one-offs cannot supply locational roots or lifecycle overrides. Native configuration is unavailable during Herdr handoff.
+- Instructions and the startup identity check use protected temporary files cleaned up through the existing foreground lifecycle. Cards and model-facing results label the one-off mode, selected model, declared thinking, and tool selection. `details.results[]` adds `configuration` (`overrides` or `custom`) and `agentTools`; existing model/thinking fields remain authoritative for launch settings. Unspecified thinking is reported as the Pi default, not inferred.
+
+Use file-backed definitions for reusable behavior. One-off configuration does not change saved definitions, credentials, or loadouts.
 
 ## Token speed
 
@@ -97,7 +143,7 @@ thinking: high
 ---
 ```
 
-`thinking` accepts `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. When declared, every new and resumed child receives `--thinking <level>`, overriding that child's startup and saved-session setting. Omit it to preserve Pi's existing child defaults. Callers cannot override it through `subagent`; Pi still clamps levels to selected-model support.
+`thinking` accepts `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. When declared, every new and resumed child receives `--thinking <level>`, overriding that child's startup and saved-session setting. Omit it to preserve Pi's existing child defaults. A new-session behavioral one-off can override it through `overrides.thinking`; ordinary and resumed calls retain definition policy. Pi still clamps levels to selected-model support.
 
 ### Behavioral caller overrides
 

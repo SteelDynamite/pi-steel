@@ -55,6 +55,10 @@ export interface SingleResult {
 	agentOrigin: AgentOrigin | "unknown";
 	agentOverride?: boolean;
 	agentThinking?: ThinkingLevel;
+	/** One-off mode; effective model/thinking remain in their ordinary result fields. */
+	configuration?: "overrides" | "custom";
+	/** Effective one-off tool selection. Undefined uses Pi defaults; [] disables all. */
+	agentTools?: string[];
 	/** Eligible launch-time intent, not child payload or server confirmation. Omission means unknown. */
 	requestedSpeed?: "ultrafast";
 	/** Live character estimate or completed duration-weighted aggregate; independent of requestedSpeed. */

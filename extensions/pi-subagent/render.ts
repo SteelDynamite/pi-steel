@@ -36,9 +36,10 @@ export function formatNestedSubagentsForDisplay(
 	return lines.join("\n");
 }
 
-function formatCall(args: { id?: string; session?: string; task?: string }, theme: any, override = false): string {
+function formatCall(args: { id?: string; session?: string; task?: string; overrides?: unknown; custom?: unknown }, theme: any, override = false): string {
 	const task = args.task ? preview(args.task, 60) : "...";
-	return `${theme.fg("toolTitle", theme.bold("subagent "))}${theme.fg("accent", args.id || "...")}${override ? theme.fg("muted", " (override)") : ""}${args.session ? theme.fg("muted", ` [session:${args.session}]`) : ""}\n  ${theme.fg("dim", task)}`;
+	const mode = args.custom ? "custom" : args.overrides ? "overrides" : undefined;
+	return `${theme.fg("toolTitle", theme.bold("subagent "))}${theme.fg("accent", args.id || "...")}${override ? theme.fg("muted", " (override)") : ""}${mode ? theme.fg("muted", ` [one-off:${mode}]`) : ""}${args.session ? theme.fg("muted", ` [session:${args.session}]`) : ""}\n  ${theme.fg("dim", task)}`;
 }
 
 function formatStatus(agent: SingleResult, running: boolean, theme: any): string {
@@ -46,7 +47,7 @@ function formatStatus(agent: SingleResult, running: boolean, theme: any): string
 	return `${theme.fg(running ? "warning" : isFailedResult(agent) ? "error" : "success", status)}${theme.fg("muted", ` · ${agent.model || "default"} · ${agent.agentThinking || "default"}${formatRequestedSpeed(agent.requestedSpeed)}${formatTokenSpeed(agent.tokenSpeed)}`)}`;
 }
 
-export function renderSubagentCall(args: { id?: string; session?: string; task?: string }, theme: any, context: any) {
+export function renderSubagentCall(args: { id?: string; session?: string; task?: string; overrides?: unknown; custom?: unknown }, theme: any, context: any) {
 	const component = context?.lastComponent ?? new Text("", 0, 0);
 	context?.state && (context.state.subagentCall = { args, component, theme });
 	component.setText(formatCall(args, theme, context?.state?.subagentOverride === true));
@@ -65,6 +66,7 @@ export function renderSubagentResult(result: any, { expanded, isPartial = false 
 	const running = isPartial || agent.exitCode === -1;
 	const failed = !running && isFailedResult(agent);
 	const status = formatStatus(agent, running, theme);
+	const configuration = agent.configuration ? `One-off ${agent.configuration} · tools: ${agent.agentTools === undefined ? "Pi defaults" : agent.agentTools.join(", ") || "none"}` : "";
 	const nested = formatNestedSubagentsForDisplay(agent.nestedSubagents, theme.fg.bind(theme));
 	const display = getDisplayItems(agent.messages);
 	const output = getFinalOutput(agent.messages);
@@ -72,6 +74,7 @@ export function renderSubagentResult(result: any, { expanded, isPartial = false 
 	const compactOutput = display.slice(-COLLAPSED_ITEM_COUNT).filter((item) => item.type === "text").map((item) => preview(item.text)).join("\n");
 	if (!expanded) {
 		let text = status;
+		if (configuration) text += `\n${theme.fg("muted", configuration)}`;
 		const nestedIds = getNestedSubagentIds(agent.messages);
 		if (nestedIds.length && !nested) text += theme.fg("dim", ` +${nestedIds.length} nested`);
 		if (nested) text += `\n${nested}`;
@@ -86,6 +89,7 @@ export function renderSubagentResult(result: any, { expanded, isPartial = false 
 	}
 	const container = new Container();
 	container.addChild(new Text(status, 0, 0));
+	if (configuration) container.addChild(new Text(theme.fg("muted", configuration), 0, 0));
 	if (nested) container.addChild(new Text(nested, 0, 0));
 	if (agent.warning) container.addChild(new Text(theme.fg("warning", `Warning: ${agent.warning}`), 0, 0));
 	if (agent.wrongSessionIntent) container.addChild(new Text(theme.fg("error", `Wrong session intent; retry: ${agent.wrongSessionIntent.recommendedRetry}`), 0, 0));

@@ -39,10 +39,11 @@ export function isFailedResult(result: Pick<SingleResult, "exitCode" | "stopReas
 }
 
 export function getResultOutput(result: SingleResult): string {
-	const warning = result.warning ? `Warning: ${result.warning}\n\n` : "";
+	const configuration = result.configuration ? `One-off ${result.configuration}: ${result.model}; thinking: ${result.agentThinking ?? "Pi default"}; tools: ${result.agentTools === undefined ? "Pi defaults" : result.agentTools.join(", ") || "none"}.\n\n` : "";
+	const prefix = configuration + (result.warning ? `Warning: ${result.warning}\n\n` : "");
 	const nextIntent = result.nextSessionIntent ? `\n\nNext call to this subagent should use session: "${result.nextSessionIntent}"` : "";
-	if (isFailedResult(result)) return warning + (result.errorMessage || result.stderr || getFinalOutput(result.messages) || "(no output)") + nextIntent;
-	return warning + (getFinalOutput(result.messages) || "(no output)") + nextIntent;
+	if (isFailedResult(result)) return prefix + (result.errorMessage || result.stderr || getFinalOutput(result.messages) || "(no output)") + nextIntent;
+	return prefix + (getFinalOutput(result.messages) || "(no output)") + nextIntent;
 }
 
 export function getDisplayItems(messages: Message[]): DisplayItem[] {
