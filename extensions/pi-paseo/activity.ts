@@ -1,4 +1,7 @@
 import { request } from "node:http";
+import type { ActivityDiagnostics, DiagnosticFields } from "./diagnostics.js";
+
+type ActivityFacts = Pick<DiagnosticFields, "source" | "reason" | "idle" | "waiting" | "aborted">;
 
 export type ActivityState = "running" | "idle" | "needs-input";
 export interface ActivityConnection { url: URL; terminalId: string; token: string }
@@ -20,13 +23,17 @@ export function activityConnection(env: NodeJS.ProcessEnv): ActivityConnection |
  * Coalescing bounds memory during a stalled daemon; intermediate states can drop. */
 export class ActivityReporter {
   error: string | undefined;
-  private pending: ActivityState | undefined;
+  private pending: { state: ActivityState; request: number; facts: ActivityFacts } | undefined;
   private draining: Promise<void> | undefined;
+  private sequence = 0;
+  private inFlight: number | undefined;
 
-  constructor(private readonly connection: ActivityConnection) {}
+  constructor(private readonly connection: ActivityConnection, private readonly diagnostics?: Pick<ActivityDiagnostics, "emit">) {}
 
-  report(state: ActivityState): Promise<void> {
-    this.pending = state;
+  report(state: ActivityState, facts: ActivityFacts = {}): Promise<void> {
+    const request = this.sequence = Math.min(Number.MAX_SAFE_INTEGER, this.sequence + 1);
+    this.diagnostics?.emit({ ...facts, phase: "queued", state, request, replaced: this.pending?.request, inFlight: this.inFlight });
+    this.pending = { state, request, facts };
     if (!this.draining) {
       this.draining = this.drain();
     }
@@ -35,30 +42,43 @@ export class ActivityReporter {
 
   private async drain(): Promise<void> {
     while (this.pending) {
-      const state = this.pending;
+      const { state, request: id, facts } = this.pending;
       this.pending = undefined;
+      this.inFlight = id;
+      const start = performance.now();
+      this.diagnostics?.emit({ ...facts, phase: "request_start", state, request: id });
       await new Promise<void>((resolve) => {
-        const body = JSON.stringify({ terminalId: this.connection.terminalId, token: this.connection.token, state });
-        const req = request(this.connection.url, {
-          method: "POST", agent: false,
-          headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) },
-        });
-        // A total deadline, not an inactivity timeout. Error text never contains
-        // the capability token or a response body from the endpoint.
-        const deadline = setTimeout(() => req.destroy(new Error("deadline")), 750);
-        req.on("response", (res) => {
-          this.error = res.statusCode === 204 ? undefined : `Activity endpoint returned HTTP ${res.statusCode}.`;
+        let deadline: ReturnType<typeof setTimeout> | undefined;
+        let timedOut = false;
+        let finished = false;
+        const finish = (outcome: DiagnosticFields["outcome"], status?: number) => {
+          if (finished) return;
+          finished = true;
           clearTimeout(deadline);
-          res.destroy();
+          this.error = outcome === "ok" ? undefined : status !== undefined
+            ? `Activity endpoint returned HTTP ${status}.` : "Activity endpoint unavailable or timed out.";
+          this.diagnostics?.emit({ ...facts, phase: "request_end", state, request: id, outcome, status, durationMs: performance.now() - start });
           resolve();
-        });
-        req.on("error", () => {
-          this.error = "Activity endpoint unavailable or timed out.";
-          clearTimeout(deadline);
-          resolve();
-        });
-        req.end(body);
+        };
+        try {
+          const body = JSON.stringify({ terminalId: this.connection.terminalId, token: this.connection.token, state });
+          const req = request(this.connection.url, {
+            method: "POST", agent: false,
+            headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) },
+          });
+          // Preserve the total HTTP deadline, independent of diagnostic I/O.
+          deadline = setTimeout(() => { timedOut = true; req.destroy(new Error("deadline")); }, 750);
+          req.on("response", (res) => {
+            finish(res.statusCode === 204 ? "ok" : "http", res.statusCode);
+            res.destroy();
+          });
+          req.on("error", (error: NodeJS.ErrnoException) => {
+            finish(timedOut ? "deadline" : error.code === "ECONNREFUSED" ? "refused" : error.code === "ECONNRESET" ? "reset" : "network");
+          });
+          req.end(body);
+        } catch { finish("setup"); }
       });
+      this.inFlight = undefined;
     }
     this.draining = undefined;
   }

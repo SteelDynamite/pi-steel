@@ -26,7 +26,7 @@ if (!process.env.STEEL_PASEO_CASE) {
   test("Paseo: actual host lifecycle, isolated settings, UI dialogs, reload, RPC and child boundaries", { timeout: 60_000 }, async () => {
     const home = mkdtempSync(join(tmpdir(), "steel-paseo-"));
     try {
-      for (const variant of ["tui", "native", "rpc", "child", "outside"]) {
+      for (const variant of ["tui", "native", "rpc", "child", "outside", "invalid"]) {
         const caseHome = join(home, variant);
         const agentDir = join(caseHome, "agent");
         const cwd = join(caseHome, "workspace");
@@ -39,7 +39,7 @@ if (!process.env.STEEL_PASEO_CASE) {
         const { stdout, stderr } = await run(process.execPath, ["--import", "tsx", fileURLToPath(import.meta.url)], {
           cwd: sourceRoot, timeout: 15_000,
           env: {
-            PATH: process.env.PATH, HOME: caseHome, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1",
+            PATH: process.env.PATH, HOME: caseHome, USERPROFILE: caseHome, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1",
             STEEL_TEST_PACKAGE_ROOT: root, STEEL_PASEO_CASE: variant, STEEL_PASEO_CWD: cwd,
             NODE_OPTIONS: `--import=${join(sourceRoot, "test/fixtures/paseo-network-guard.mjs")}`,
             STEEL_NETWORK_ATTEMPTS: network,
@@ -58,6 +58,7 @@ if (!process.env.STEEL_PASEO_CASE) {
   const cwd = process.env.STEEL_PASEO_CWD!;
   const agentDir = process.env.PI_CODING_AGENT_DIR!;
   const settingsPath = join(agentDir, "paseo.json");
+  const diagnosticsPath = join(process.env.HOME!, ".pi-paseo-diagnostics", "activity.v1.log");
   const states: string[] = [];
   const httpErrors: unknown[] = [];
   const server = createServer(async (req, res) => {
@@ -84,7 +85,7 @@ if (!process.env.STEEL_PASEO_CASE) {
   assert(address && typeof address !== "string");
   process.env.STEEL_PASEO_PORT = String(address.port);
   process.env.PASEO_TERMINAL_ACTIVITY_URL = `http://127.0.0.1:${address.port}/api/terminal-activity`;
-  process.env.PASEO_ACTIVITY_TOKEN = "fixture-token-not-a-credential";
+  process.env.PASEO_ACTIVITY_TOKEN = variant === "invalid" ? "" : "fixture-token-not-a-credential";
   if (variant !== "outside" && variant !== "native") process.env.PASEO_TERMINAL_ID = "fixture-terminal";
   if (variant === "native" || variant === "rpc") process.env.PASEO_AGENT_ID = "fixture-agent";
   const settings = SettingsManager.create(cwd, agentDir, { projectTrusted: true });
@@ -94,6 +95,8 @@ if (!process.env.STEEL_PASEO_CASE) {
   const notices: string[] = [];
   const dialogs: Array<{ title: string; options: string[] }> = [];
   let closeDialog: ((value: string | undefined) => void) | undefined;
+  let requestSubagent = false;
+  let finishSubagent: (() => void) | undefined;
   const loader = new DefaultResourceLoader({
     cwd, agentDir, settingsManager: settings,
     additionalExtensionPaths: [join(root, "extensions/pi-paseo/index.ts")],
@@ -101,6 +104,13 @@ if (!process.env.STEEL_PASEO_CASE) {
       // Represents a separately injected native Paseo tool; toggles must not own it.
       pi.registerTool({ name: "paseo_native_sentinel", label: "Sentinel", description: "Native sentinel", parameters: Type.Object({}),
         async execute() { return { content: [{ type: "text", text: "native" }], details: {} }; } });
+      // Deterministic foreground tool, not a provider/subprocess audit. The host
+      // must emit the real tool lifecycle; contents must never enter diagnostics.
+      pi.registerTool({ name: "subagent", label: "Subagent fixture", description: "Fixture", parameters: Type.Object({ task: Type.String() }),
+        async execute() {
+          await new Promise<void>(resolve => { finishSubagent = resolve; });
+          return { content: [{ type: "text", text: "PRIVATE-TOOL-RESULT" }], details: {} };
+        } });
       const record = async (event: { type: string }) => { lifecycle.push(event.type); };
       pi.on("agent_start", record);
       pi.on("agent_end", record);
@@ -116,10 +126,12 @@ if (!process.env.STEEL_PASEO_CASE) {
           releases.push(() => {
             const message: AssistantMessage = {
               role: "assistant", api: model.api, provider: model.provider, model: model.id, timestamp: Date.now(),
-              content: [{ type: "text", text: "Local response." }], stopReason: "stop",
+              content: requestSubagent ? [{ type: "toolCall", id: "PRIVATE-TOOL-CALL-ID", name: "subagent", arguments: { task: "PRIVATE-TOOL-ARGUMENT" } }] : [{ type: "text", text: "Local response." }],
+              stopReason: requestSubagent ? "toolUse" : "stop",
               usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
             };
-            stream.push({ type: "done", reason: "stop", message });
+            requestSubagent = false;
+            stream.push({ type: "done", reason: message.stopReason as "stop" | "toolUse", message });
             stream.end();
           });
           return stream;
@@ -142,6 +154,10 @@ if (!process.env.STEEL_PASEO_CASE) {
         },
       },
     });
+    const storeKey = Symbol.for("pi-steel.paseo.diagnostics.v1");
+    const getStore = () => (globalThis as any)[storeKey];
+    const initialStore = getStore();
+    const initialWriter = initialStore?.writer;
     const model = modelRuntime.getModels().find(model => model.provider === "steel-paseo-local");
     assert(model);
     await session.setModel(model);
@@ -160,6 +176,11 @@ if (!process.env.STEEL_PASEO_CASE) {
       await until(() => !!closeDialog, "status uses host select fallback");
       assert.deepEqual(dialogs.at(-1)!.options, ["Close"]);
       assert(dialogs.at(-1)!.title.includes(settingsPath));
+      if (reporting || variant === "invalid") {
+        assert(dialogs.at(-1)!.title.includes(diagnosticsPath));
+        assert.match(dialogs.at(-1)!.title, /written=\d+, dropped=\d+, pending=\d+/);
+        assert(!dialogs.at(-1)!.title.includes("fixture-token-not-a-credential"));
+      } else assert.match(dialogs.at(-1)!.title, /Diagnostics: inactive/);
       assert.match(dialogs.at(-1)!.title, variant === "outside" ? /not detected/ : /Paseo: detected/);
       if (reporting) await until(() => states.at(-1) === "needs-input", "host UI start reports needs-input");
       closeDialog!("Close");
@@ -175,6 +196,8 @@ if (!process.env.STEEL_PASEO_CASE) {
       await session.reload();
       assert.equal(lifecycle.filter(event => event === "session_shutdown").length, 1, "reload shuts down old extension instance");
       checkTools(variant !== "outside");
+      assert.equal(getStore(), initialStore, "reload shares one process writer and counters");
+      assert.equal(getStore()?.writer, initialWriter, "reload does not spawn another writer subprocess");
       await session.prompt("/paseo tools off");
       checkTools(false);
       assert.equal(JSON.parse(readFileSync(settingsPath, "utf8")).tools, false);
@@ -182,6 +205,8 @@ if (!process.env.STEEL_PASEO_CASE) {
       checkTools(false);
       if (variant === "outside") assert.equal(JSON.parse(readFileSync(settingsPath, "utf8")).unrelated, "preserved");
     }
+    // Refill the production diagnostics admission budget, without changing it.
+    if (reporting) await delay(1000);
     const start = states.length;
     const settled = lifecycle.filter(event => event === "agent_settled").length;
     const prompt = session.prompt("First local turn");
@@ -200,10 +225,53 @@ if (!process.env.STEEL_PASEO_CASE) {
     assert.equal(lifecycle.filter(event => event === "agent_start").length, 1);
     assert.equal(lifecycle.filter(event => event === "agent_end").length, 1);
     if (reporting) await until(() => states.at(-1) === "idle", "stable idle after queued turns");
+    if (reporting) {
+      requestSubagent = true;
+      const audit = session.prompt("PRIVATE-PROMPT foreground audit");
+      await until(() => releases.length === 1, "subagent tool-call provider response");
+      releases.shift()!();
+      await until(() => !!finishSubagent, "host starts foreground subagent");
+      await until(() => states.at(-1) === "running", "parent remains running while awaiting foreground subagent");
+      const waitingStart = states.length;
+      await delay(50);
+      assert(!states.slice(waitingStart).includes("idle"));
+      finishSubagent!();
+      await until(() => releases.length === 1, "provider receives completed subagent result");
+      releases.shift()!();
+      await audit;
+      await session.waitForIdle();
+      await until(() => states.at(-1) === "idle", "parent settles after foreground subagent");
+    }
     const beforeShutdown = states.length;
     await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
     if (reporting) assert.deepEqual(states.slice(beforeShutdown), ["idle"], "shutdown awaits a final idle reset");
     else assert.deepEqual(states, [], "RPC, children and outside terminals never report activity");
+    if (reporting || variant === "invalid") {
+      await until(() => getStore().pending === 0, "diagnostic queue drains outside lifecycle hooks");
+      assert.equal(getStore().failure, undefined, "actual Pi loader supports diagnostic writer execution");
+      const decoded = await run(process.execPath, [join(root, "extensions/pi-paseo/diagnostics-read.mjs"), diagnosticsPath]);
+      const events = decoded.stdout.trim().split("\n").map(line => JSON.parse(line));
+      assert(events.some(event => event.source === "session_start" && event.eligibility === (reporting ? "enabled" : "invalid_connection")));
+      assert(new Set(events.map(event => event.runtime)).size >= 3, "reloads use distinct runtime correlations");
+      assert.equal(new Set(events.map(event => event.process)).size, 1);
+      for (const secret of ["PRIVATE-", "fixture-terminal", "fixture-token", settingsPath, cwd, "/api/terminal-activity"]) assert(!decoded.stdout.includes(secret), secret);
+      if (reporting) {
+        const begin = events.find(event => event.phase === "subagent_start");
+        const end = events.find(event => event.phase === "subagent_end");
+        assert(begin && end);
+        assert.equal(begin.call, end.call);
+        assert.equal(begin.runtime, end.runtime);
+        assert.equal(begin.idle, false);
+        assert.equal(begin.waiting, false);
+        assert.equal(end.isError, false);
+        assert(begin.seq < end.seq);
+        const requests = events.filter(event => event.phase === "request_start");
+        assert(requests.length > 0);
+        assert(requests.every(start => events.some(end => end.phase === "request_end" && end.runtime === start.runtime && end.request === start.request && end.status === 204 && end.outcome === "ok")));
+        assert(events.some(event => event.source === "session_shutdown" && event.reason === "quit"));
+        assert(events.some(event => event.source === "agent_settled" && event.aborted === false));
+      } else assert(!events.some(event => event.phase === "request_start"));
+    } else assert(!existsSync(diagnosticsPath), "native/RPC, child and outside sessions do not create logs");
     assert.deepEqual(loader.getExtensions().errors, []);
     assert.deepEqual(errors, []);
     assert.deepEqual(httpErrors, []);

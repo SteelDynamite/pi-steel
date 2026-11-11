@@ -23,6 +23,7 @@ assert.deepEqual(loadouts.loadouts.Everything.bundled, registry.extensions.map(m
 assert.deepEqual(loadouts.loadouts.ChatBot.bundled, ['pi-system-reminders', 'pi-subagent']);
 for (const loadout of Object.values(loadouts.loadouts)) assert.deepEqual(loadout.external, ['git:https://github.com/elpapi42/pi-observational-memory.git']);
 assert(![...files].some(path => path.includes('pi-observational-memory')), 'External memory package must not be bundled');
+for (const path of ['extensions/pi-paseo/diagnostics.ts', 'extensions/pi-paseo/diagnostics-read.mjs']) assert(files.has(path), `Missing Paseo diagnostics: ${path}`);
 assert(files.has('extensions/pi-subagent/skills/herdr-delegation/SKILL.md'), 'Missing preloaded Herdr guidance asset');
 assert(![...files].some(path => path.startsWith('extensions/pi-subagent/prompts/')), 'Subagent must not bundle prompt templates');
 assert.deepEqual(manifest.pi.extensions, ['index.ts', ...registry.extensions.map(member => member.entry)]);

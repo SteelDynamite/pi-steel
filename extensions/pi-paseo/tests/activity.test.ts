@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 import { activityConnection, ActivityReporter } from "../activity.js";
+import type { DiagnosticFields } from "../diagnostics.js";
 
 const env = {
   PASEO_TERMINAL_ID: "terminal", PASEO_ACTIVITY_TOKEN: "private-token",
@@ -33,9 +34,10 @@ test("ordered reporting is bounded to one in-flight and one latest state", async
   await once(server, "listening");
   try {
     const connection = activityConnection({ ...env, PASEO_TERMINAL_ACTIVITY_URL: `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/terminal-activity` })!;
-    const reporter = new ActivityReporter(connection);
+    const events: DiagnosticFields[] = [];
+    const reporter = new ActivityReporter(connection, { emit: event => { events.push(event); } });
     const first = once(server, "report");
-    const done = reporter.report("running");
+    const done = reporter.report("running", { source: "agent_start", idle: false, waiting: false });
     await first;
     reporter.report("needs-input");
     reporter.report("running");
@@ -51,6 +53,13 @@ test("ordered reporting is bounded to one in-flight and one latest state", async
       { terminalId: "terminal", token: "private-token", state: "idle" },
     ]);
     assert.equal(reporter.error, undefined);
+    assert.deepEqual(events.filter(event => event.phase === "queued").map(event => [event.request, event.replaced, event.inFlight]), [
+      [1, undefined, undefined], [2, undefined, 1], [3, 2, 1], [4, 3, 1],
+    ]);
+    assert.deepEqual(events.filter(event => event.phase === "request_start").map(event => event.request), [1, 4]);
+    assert.deepEqual(events.filter(event => event.phase === "request_end").map(event => [event.request, event.outcome, event.status]), [[1, "ok", 204], [4, "ok", 204]]);
+    assert(events.filter(event => event.request === 1).every(event => event.source === "agent_start" && event.idle === false && event.waiting === false));
+    assert(events.filter(event => event.phase === "request_end").every(event => Number.isFinite(event.durationMs)));
     const third = once(server, "report");
     const next = reporter.report("needs-input");
     await third;
@@ -71,7 +80,8 @@ test("timeouts and HTTP failures are silent, bounded, and never follow redirects
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   try {
-    const reporter = new ActivityReporter(activityConnection({ ...env, PASEO_TERMINAL_ACTIVITY_URL: `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/terminal-activity` })!);
+    const events: DiagnosticFields[] = [];
+    const reporter = new ActivityReporter(activityConnection({ ...env, PASEO_TERMINAL_ACTIVITY_URL: `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/terminal-activity` })!, { emit: event => { events.push(event); } });
     await reporter.report("running");
     assert.equal(reporter.error, "Activity endpoint returned HTTP 302.");
     const start = Date.now();
@@ -81,5 +91,9 @@ test("timeouts and HTTP failures are silent, bounded, and never follow redirects
     assert.equal(count, 2, "no automatic retries or redirect requests");
     await reporter.report("running");
     assert.equal(reporter.error, undefined, "a subsequent lifecycle event can recover");
+    assert.deepEqual(events.filter(event => event.phase === "request_end").map(event => event.outcome), ["http", "deadline", "ok"], "recovery must not erase prior failure diagnostics");
+    assert(events.some(event => event.phase === "request_end" && event.status === 302));
+    assert(!JSON.stringify(events).includes("private-token"));
+    assert(!JSON.stringify(events).includes("evil.test"));
   } finally { server.closeAllConnections(); server.close(); }
 });

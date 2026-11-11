@@ -16,12 +16,49 @@ Detection uses Paseo's injected `PASEO_TERMINAL_ID`, `PASEO_ACTIVITY_TOKEN`, and
 
 Paseo's protocol cannot distinguish cancellation, failure, or graceful shutdown from successful completion: all use `idle`. Paseo also clears activity on terminal interrupt input. Its notification preferences and focus policy still apply. Activity support does **not** create a native agent timeline, synchronize session titles, or expose Steel subagents/tasks in Paseo's native UI.
 
+## Local activity diagnostics
+
+Diagnostics default **on** for Paseo TUI sessions, independently of control tools. They observe reporting; they do **not** fix or explain an absent Paseo indicator. A parent awaiting a foreground subagent can be working while Paseo returns `activity: null`; the cause is unknown. Do not infer Escape, Ctrl+C, or successful delivery from that observation alone.
+
+`/paseo status` shows the file, terminal hash, runtime ID, and process-wide acknowledged-write, dropped-event, and pending counters. A safe failure classification remains visible after activity HTTP requests recover. No footer, notification loop, model turn, or upload is added. Invalid injected TUI connections record their startup eligibility reason. Outside Paseo, in RPC/native sessions, and in orchestrated children, no diagnostic file is opened; nonchild status explains ineligibility.
+
+### Storage and loss policy
+
+- **One file per OS user home:** `~/.pi-paseo-diagnostics/activity.v1.log` (Windows: the user profile's `.pi-paseo-diagnostics` directory). All projects, agent directories, runtime reloads, and concurrent Pi processes sharing that home share the same **4,194,304-byte log-data ceiling**: 4,096 slots × 1,024 bytes. No rotations, temporary files, lock files, per-session files, or index. Filesystem allocation/metadata, journals, backups, and user-made copies are outside this log-data bound.
+- Each process starts at a random slot and overwrites sequentially, wrapping in place. Concurrent writers may overwrite or tear each other's records; SHA-256 checksums let the reader reject torn records. There is no global chronological ordering or guaranteed last-N retention across processes. Without new events, records remain indefinitely; busy sessions can displace another session's evidence immediately. This is bounded diagnostic sampling, not an audit journal.
+- One detached **local writer subprocess per Pi process**, shared across runtime reloads, performs synchronous filesystem calls away from Pi's main thread and shared async filesystem pool. At most **64 queued 1-KiB records plus one in flight**, with admission capped at **32 records/second plus a 64-record burst** per Pi process. At the queue/rate limit, new events are dropped rather than extending the backlog. The writer receives only one record at a time over unreferenced IPC; standard I/O is ignored and the parent environment is not inherited. Its V8 limits are 16 MiB old generation, 2 MiB per semi-space (up to 6 MiB young generation), and 1 MiB stack—not a total process RSS guarantee.
+- One unreferenced **1-second deadline** exists only while a write acknowledgment is pending. Filesystem/writer failure, a short write, or timeout drops outstanding work and permanently disables that Pi process's writer. Failure/disposal disconnects IPC and requests one forced termination; normal Pi exit does the same. No retries, lock waits, replacement writers, polling, or idle timers. Reload retains the writer, failure, and counters. Counters saturate at `Number.MAX_SAFE_INTEGER`.
+- Shutdown closes runtime logging without waiting for disk. The process-owned writer may finish already queued records until Pi exits, but abrupt exit, timeout, OS cache loss, or concurrent overwrite can lose them. `written` means writer acknowledgment, **not fsync durability**. Dropped counters cover local rejection/failure, not overwrites, crashes, or other processes; sequence gaps are not proof of any one cause. No background cleanup can grow a backlog.
+- New POSIX directories/files use `0700`/`0600`; nonprivate or foreign-owned storage, symlinks, nonregular files, hard-linked files, and oversized files are rejected, not repaired or deleted. Windows relies on inherited private user-profile ACLs; Node modes do not establish Windows ACLs. Use a private local home, not a shared/public profile or network-mounted home. Administrators and the same OS account can still access diagnostics. Malformed slot contents need no recovery state and are overwritten normally. Do not externally rotate or replace the file while writers are active.
+
+A separate process is intentional: Node can wait indefinitely for a worker thread blocked inside an OS filesystem call, even after `terminate()`/`unref()`. The detached writer and its IPC cannot hold Pi's event loop open. An OS-uninterruptible operation may still delay the writer's termination until the kernel returns; there is no portable absolute cancellation guarantee. It is never replaced in that Pi process. Repeatedly launching new Pi processes against a broken filesystem can leave additional OS-stuck helpers; stop doing so and resolve the filesystem problem. The shared log-data bound still holds.
+
+Writer launch requires a recognized plain Node executable named `node` or `node.exe`, Node runtime metadata, and a negative Node SEA check. Electron, Bun, Node single-executable applications, known packaged runtimes, and renamed/unknown executables **fail closed** as `unsupported_runtime`. No executable probe, interpreter search, Pi CLI, provider, or model session is launched. Activity HTTP reporting still works when diagnostics are unsupported. This deliberately limits diagnostic support rather than assuming `process.execPath` always interprets JavaScript.
+
+### Fields and interpretation
+
+The runtime allowlist contains schema version, UTC timestamp, random process/runtime IDs, SHA-256 terminal correlation, runtime sequence, local dropped count, lifecycle source/reason, eligibility, computed state/idle/waiting facts, host-reported abort/error booleans, request IDs, replaced/in-flight request IDs, classified outcome, HTTP status, and monotonic duration. Terminal IDs are never filenames. **No** prompt, tool argument/result, transcript, UI title, repository/session path, credential, endpoint URL/query, raw error/stack, or response body is recorded.
+
+`queued.request` links to `request_start` and `request_end` within one runtime; `replaced` identifies a pending request coalesced away, and `inFlight` identifies the request it waited behind. `request_end.outcome=ok` means HTTP 204—not proof that Paseo retained or displayed the state. `http`, `deadline`, `refused`, `reset`, `network`, and `setup` classify failures without error text. The activity transport still has its independent **750 ms** deadline and unchanged ordering/coalescing.
+
+`subagent_start`/`subagent_end` use a hashed tool-call ID and parent idle/waiting facts. These are Pi tool lifecycle boundaries, including preflight/failed calls, not child turns or proof a child launched. They record no progress/token stream and add no activity requests. Children never take ownership of the parent indicator.
+
+From the package checkout or installation directory, decode retained valid records in UTC order:
+
+```sh
+node extensions/pi-paseo/diagnostics-read.mjs
+# Optional: inspect a manually copied snapshot, without modifying it.
+node extensions/pi-paseo/diagnostics-read.mjs /path/to/activity.v1.log
+```
+
+The reader checks each fixed slot and checksum, reports invalid slots to stderr, and prints JSON events to stdout. A live read is not an atomic snapshot. Match the terminal hash from `/paseo status`, then group by runtime and sequence. Capture promptly after an incident; retained request/transition evidence can distinguish reporting attempts, coalescing, and endpoint failures, but cannot establish daemon-side clearing. There is no automatic export or upload.
+
 ## Settings
 
 | Command | Effect |
 | --- | --- |
 | `/paseo` | Dialog with status and control-tool choices. |
-| `/paseo status` | Show detection, activity health, and tool setting. |
+| `/paseo status` | Show detection, activity health, diagnostic location/counters, and tool setting. |
 | `/paseo tools on` | Save and enable this extension's control tool in the current session. |
 | `/paseo tools off` | Save and hide this extension's tool; cancel its active CLI calls. |
 
@@ -85,4 +122,4 @@ The initial tool intentionally excludes schedules, browser automation, plugin/co
 
 ## Validation
 
-From this directory, `npm run check` runs typechecking and local HTTP/subprocess tests. Root `test/paseo.test.ts` exercises actual Pi lifecycle, dialogs, toggles, reloads, and child/native boundaries in isolated homes; the packed suite repeats it against the installed tarball. No real Paseo daemon or live model provider is used. Windows launch-contract tests run on every OS with mocked filesystem/process boundaries. Subprocess tests use a POSIX executable wrapper on POSIX and a copied Node executable in a synthetic Paseo layout on Windows; they exercise argument preservation, cancellation, and capture limits without a daemon. Run this module's `npm run check` on Windows to verify native process behavior. The synthetic layout does not verify Electron's ASAR loading. Desktop/mobile clients, OS notifications, real Electron/ASAR launches, and a real Paseo deployment require separate validation.
+From this directory, `npm run check` runs typechecking and local HTTP/subprocess tests, plus diagnostic bounds, concurrent-process overwrite, checksum, privacy, failure, and writer-backlog, interpreter-contract, and blocked-shutdown tests. Root `test/paseo.test.ts` exercises actual Pi lifecycle, dialogs, toggles, reloads, a deterministic foreground subagent-shaped tool, diagnostic correlation, and child/native boundaries in isolated homes; the packed suite repeats it against the installed tarball. No real Paseo daemon or live model provider is used. Windows launch-contract tests run on every OS with mocked filesystem/process boundaries. Subprocess tests use a POSIX executable wrapper on POSIX and a copied Node executable in a synthetic Paseo layout on Windows; they exercise argument preservation, cancellation, and capture limits without a daemon. Run this module's `npm run check` on Windows to verify native process behavior. The synthetic layout does not verify Electron's ASAR loading. Desktop/mobile clients, OS notifications, real Electron/ASAR launches, and a real Paseo deployment require separate validation.
