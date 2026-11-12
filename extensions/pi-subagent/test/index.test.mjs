@@ -40,6 +40,23 @@ test("extension registers singular settings and the public subagent tool", () =>
 	}
 });
 
+test("native subagent guidance requires direct calls with locational agents disabled or enabled", () => {
+	const previous = process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS;
+	try {
+		for (const enabled of ["0", "1"]) {
+			process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS = enabled;
+			const { tools } = registerExtension();
+			assert.equal(tools[0].exposure, "model-only");
+			assert.deepEqual(tools[0].promptGuidelines, [
+				"Call subagent directly, never from a codemode script. It is model-only and unavailable through tools.subagent.",
+			]);
+		}
+	} finally {
+		if (previous === undefined) delete process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS;
+		else process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS = previous;
+	}
+});
+
 test("built-in bash path arguments remain subject to locational boundaries", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-subagent-boundary-"));
 	try {

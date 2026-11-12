@@ -225,6 +225,7 @@ export default async function (pi: ExtensionAPI) {
 			? "Delegate exactly one task to an isolated behavioral or locational Pi agent and wait for its result. Requires id, session, and task. Behavioral agents inherit the caller directory. Locational agents use a caller-relative or absolute source-root id containing SUBAGENTS.md and run from that root. Behavioral children discover no locational agents unless includeLocationalAgents is true. Optional overrides customize an existing behavioral role; custom defines a new inline role. Both require session new, are mutually exclusive, and never fall back from an explicit per-call model."
 			: "Delegate exactly one task to an isolated behavioral Pi agent and wait for its result. Requires id, session, and task. Behavioral agents inherit the caller directory. Locational agents are disabled; includeLocationalAgents cannot enable them. Optional overrides customize an existing role; custom defines a new inline role. Both require session new, are mutually exclusive, and never fall back from an explicit per-call model.",
 		promptSnippet: "Delegate one foreground-managed task to an isolated Pi agent and wait for its result",
+		promptGuidelines: ["Call subagent directly, never from a codemode script. It is model-only and unavailable through tools.subagent."],
 		parameters: SubagentParams,
 		async execute(_toolCallId: string, params: SubagentToolParams, signal: AbortSignal | undefined, onUpdate: OnUpdateCallback | undefined, ctx: ExtensionContext) {
 			const trusted = ctx.isProjectTrusted();
