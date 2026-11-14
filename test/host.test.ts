@@ -210,7 +210,7 @@ async function exerciseHost(): Promise<void> {
         const start = notices.length;
         await session.prompt("/om:status");
         const status = notices.slice(start).join("\n");
-        for (const [label, value] of [["Next observation", 30864], ["Next reflection", 61728], ["Next compaction", 250000], ["Visible observation pool", 61728], ["Active observation pool", 30864]] as const) {
+        for (const [label, value] of [["Next observation", 25185], ["Next reflection", 50370], ["Next compaction", 204000], ["Visible observation pool", 20000], ["Active observation pool", 10000]] as const) {
           assert(status.split("\n").some(line => line.startsWith(`${label}:`) && line.includes(`/ ${value.toLocaleString()} `)), status);
         }
         const beforeSync: number = reloads;
@@ -268,6 +268,21 @@ async function exerciseHost(): Promise<void> {
         assert.equal(readFileSync(settingsPath, "utf8"), globalBefore);
       }
     }
+    // A shipped-policy update must reconcile even when no package filter changes.
+    await session.prompt("/om:status"); // Ensure the old OM runtime has cached its settings.
+    const memoryPolicyPath = join(root, "presets/memory/settings.json");
+    const nextMemory = { ...memorySettings["observational-memory"], compactAfterTokens: 203000 };
+    writeFileSync(memoryPolicyPath, JSON.stringify({ "observational-memory": nextMemory }));
+    await session.prompt("/steel status");
+    assert.match(notices.at(-1)!, /Drift; run \/steel sync/);
+    const beforeMemorySync = reloads;
+    await session.prompt("/steel sync");
+    assert.equal(reloads, beforeMemorySync + 1, "memory-only policy updates reload the real extension runtime");
+    assert.deepEqual(JSON.parse(readFileSync(settingsPath, "utf8"))["observational-memory"], nextMemory);
+    await session.prompt("/om:status");
+    assert.match(notices.at(-1)!, /Next compaction:.*203,000/);
+    await session.prompt("/steel sync");
+    assert.equal(reloads, beforeMemorySync + 1, "the new policy converges without reload loops");
     const definitionsPath = join(root, "loadouts.json");
     const definitions = JSON.parse(readFileSync(definitionsPath, "utf8"));
     definitions.loadouts.ChatBot.bundled.push("pi-todo");

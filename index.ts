@@ -47,7 +47,7 @@ export default function steel(pi: ExtensionAPI): void {
       const preview = plan(config, members, settings, host, root, agentDir, ctx.cwd, declarations.getProjectSettings());
       const approvedSettings = JSON.stringify(settings.getGlobalSettings());
       if (command === "status") {
-        ctx.ui.notify(`Selected: ${config.active}\nBundled: ${selection.bundled.join(", ") || "none"}\nExternal: ${selection.external.join(", ") || "none"}\nProject exclusions: ${preview.projectExcluded.join(", ") || "none"}\n${preview.changed || preview.install.length ? "Drift; run /steel sync" : "Configured declarations match"}${reloadNeeded ? "; reload or restart Pi to apply saved changes" : " (runtime requires reload after outside edits)"}${syncError ? `\nLast sync failed: ${syncError}` : ""}`, "info");
+        ctx.ui.notify(`Selected: ${config.active}\nBundled: ${selection.bundled.join(", ") || "none"}\nExternal: ${selection.external.join(", ") || "none"}\nProject exclusions: ${preview.projectExcluded.join(", ") || "none"}\nManaged OM thresholds: ${preview.memoryThresholds ? Object.entries(preview.memoryThresholds).map(([key, value]) => `${key}=${value}`).join(", ") : "inactive"}\n${preview.changed || preview.install.length ? "Drift; run /steel sync" : "Configured declarations and managed settings match"}${reloadNeeded ? "; reload or restart Pi to apply saved changes" : " (runtime requires reload after outside edits)"}${syncError ? `\nLast sync failed: ${syncError}` : ""}`, "info");
         return false;
       }
       if (process.env.PI_ORCHESTRATED_CHILD === "1") throw new Error("Steel mutation is disabled in orchestrated children");
@@ -79,7 +79,7 @@ export default function steel(pi: ExtensionAPI): void {
       if (automatic) {
         if (ctx.mode === "tui") ctx.ui.notify(`Steel loadout: ${selected}${reloadNeeded ? ". Saved changes require /reload or a Pi restart." : ""}`, reloadNeeded ? "warning" : "info");
       } else {
-        ctx.ui.notify(`Selected ${selected}; ${reloadNeeded ? "resource changes saved; reloading" : "already synchronized"}`, "info");
+        ctx.ui.notify(`Selected ${selected}; ${reloadNeeded ? "resource/settings changes saved; reloading" : "already synchronized"}`, "info");
       }
       return reloadNeeded;
     } catch (error) {
@@ -104,7 +104,7 @@ export default function steel(pi: ExtensionAPI): void {
     const warning = [
       `Steel selected loadout: ${selected ?? "unknown"}.`,
       ...(syncError ? [`Loadout synchronization failed: ${syncError}. Do not claim it was applied. Retry /steel sync after resolving the failure.`] : []),
-      ...(reloadNeeded ? ["Saved loadout changes are not applied to this running session. Ask the user to run /reload or restart Pi before relying on the new loadout or delegating: new subagent children may load the updated configuration while this parent still uses the old one."] : []),
+      ...(reloadNeeded ? ["Saved loadout or managed memory settings changes are not applied to this running session. Ask the user to run /reload or restart Pi before relying on the new configuration or delegating: new subagent children may load the updated configuration while this parent still uses the old one."] : []),
     ].join(" ");
     // Request-local context survives compaction while pending, without persisting a
     // stale warning in the transcript or triggering a model turn just to announce it.

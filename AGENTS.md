@@ -21,7 +21,7 @@
 - Do not publish a persistent Steel footer status; leave that space for token speed and other extension statuses.
 - Prefer supported Pi package APIs and resource filters over a custom loader. Recheck actual host behavior, including settings locking, when upgrading Pi; source types and mocks alone do not establish compatibility.
 - Keep runtime dependencies available from the root distribution and host-provided Pi packages external. Preserve module-relative asset relationships and required compiled output; individual module packaging does not prove the root tarball works.
-- Keep observational memory external, using explicitly updated upstream Git. Verify the actual loaded artifact on updates, not just merged source or npm status. The development lockfile is reproducible test input, not a runtime pin. Do not import the user's fork or automatically merge memory settings.
+- Keep observational memory external, using explicitly updated upstream Git. Verify the actual loaded artifact on updates, not just merged source or npm status. The development lockfile is reproducible test input, not a runtime pin. Do not import the user's fork.
 
 ## Validation
 

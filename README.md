@@ -104,25 +104,27 @@ This is an opt-in configuration fragment, not an automatically loaded Pi package
 
 All shipped loadouts include upstream [pi-observational-memory](https://github.com/elpapi42/pi-observational-memory), tracking its unpinned Git default branch. It remains an external package, not a vendored module or fork. [presets/memory/steel.json](presets/memory/steel.json) is a legacy compatibility snapshot, not the recommended shipped selection; use `Everything` or `ChatBot` instead.
 
-[presets/memory/settings.json](presets/memory/settings.json) supplies optional configuration overrides. Steel does not merge them automatically:
+Steel manages exactly three keys in `<agent-dir>/settings.json`'s `observational-memory` object, using the shipped [presets/memory/settings.json](presets/memory/settings.json):
 
-| Threshold | Tokens |
+| Managed key | Tokens |
 | --- | ---: |
-| Auto-compaction | 250,000 |
-| Observation | 30,864 |
-| Reflection | 61,728 |
-| Observation pool maximum | 61,728 |
-| Observation pool target | 30,864 |
+| `compactAfterTokens` | 204,000 |
+| `observeAfterTokens` | 25,185 |
+| `reflectAfterTokens` | 50,370 |
 
-These scale upstream's scheduling and pool defaults by `250000 / 81000`, rounded to whole tokens. `calibrated` mode keeps the compaction threshold fixed; model-dependent capacity limits and output budgets remain unchanged. The threshold counts estimated source-history tokens, not total model context. Native Pi compaction settings are not modified.
+These scale upstream's scheduling defaults by `204000 / 81000`, rounded to whole tokens. Compaction is fixed at 204K: nominally 75% of a 272K window, **not** automatically 75% of every model. OM counts estimated observed source-history tokens, not total model context. Its default `calibrated` mode uses the fixed threshold; Pi's native context-pressure compaction remains independent.
 
-To apply during a deliberate installation or cutover:
+When the selected loadout includes upstream Git memory, session-start synchronization and `/steel use` or `/steel sync` replace local values for those three keys. Updated Steel packages supply the current values dynamically; they are not copied into `steel.json`. This includes custom loadouts selecting the same upstream Git identity, but not arbitrary local or npm memory packages. Existing package ownership checks still apply: Steel will not silently claim a manually installed memory package.
+
+All other settings remain user-owned, including memory models, pool budgets, passive mode, capacity/output limits, and native Pi compaction. Existing pool budgets are preserved; new installations retain upstream's pool defaults. Steel does not write project settings. A conflicting project threshold, a malformed memory namespace, or `compactAfterTokensMode: "ratio"` stops synchronization with an error rather than silently shadowing the managed policy or changing an unowned key. Remove conflicting overrides or explicitly choose `calibrated` mode before retrying. Matching project thresholds are accepted but may conflict with a later policy update.
+
+To apply:
 
 1. Select `/steel use Everything` or `/steel use ChatBot`; approve any missing external package download. Do not separately install memory as a manually owned package.
-2. If desired, explicitly merge the memory settings into `<agent-dir>/settings.json`'s `observational-memory` object, preserving unrelated settings and any memory model selection. Do not replace the whole settings file.
-3. Reload Pi after the settings merge. Start a fresh session after a cutover; check `/steel status` and `/om:status`.
+2. Explicit commands reload after saved changes. Automatic startup synchronization changes disk only; follow its `/reload` or restart warning before relying on the updated runtime. Children may otherwise read newer settings than the parent.
+3. Check `/steel status` for managed targets/drift and `/om:status` for the running memory thresholds. Start a fresh session after a cutover.
 
-The optional settings fragment and legacy configuration snapshot are never applied automatically. Initial installation resolves upstream's current default branch; later upstream changes require an explicit `pi update git:https://github.com/elpapi42/pi-observational-memory.git` and reload. `/steel sync` restores missing members; it does not update an already installed member. Steel's development lockfile records the tested Git artifact, not a runtime pin: it does not constrain what Pi downloads. The validated artifact is [`0fc37e6`](https://github.com/elpapi42/pi-observational-memory/commit/0fc37e67d977d1d76eab121786a319f5f07ec7d3); its declared `dist/index.ts` reproduces byte-for-byte from upstream's build and includes the unobserved-context safeguards. Future upstream revisions require revalidation. Switching away unloads memory without erasing its settings or session history. Background memory workers use the session model unless configured otherwise and incur additional model usage.
+Disabling memory in the selected loadout stops threshold management without erasing saved settings. To use different thresholds, first select a loadout without managed upstream memory; otherwise synchronization restores the shipped values. The legacy configuration snapshot is not applied automatically. Initial installation resolves upstream's current default branch; later upstream changes require an explicit `pi update git:https://github.com/elpapi42/pi-observational-memory.git` and reload. `/steel sync` restores missing members; it does not update an already installed member. Steel's development lockfile records the tested Git artifact, not a runtime pin: it does not constrain what Pi downloads. The validated artifact is [`0fc37e6`](https://github.com/elpapi42/pi-observational-memory/commit/0fc37e67d977d1d76eab121786a319f5f07ec7d3); its declared `dist/index.ts` reproduces byte-for-byte from upstream's build and includes the unobserved-context safeguards. Future upstream revisions require revalidation. Switching away unloads memory without erasing its settings or session history. Background memory workers use the session model unless configured otherwise and incur additional model usage.
 
 ### Ownership and failures
 

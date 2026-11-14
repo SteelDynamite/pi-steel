@@ -27,6 +27,7 @@ export default function (pi) {
       const file = join(ctx.cwd, "protected.txt");
       report.child = process.env.PI_ORCHESTRATED_CHILD;
       report.agentDir = process.env.PI_CODING_AGENT_DIR;
+      report.memorySettings = JSON.parse(readFileSync(join(report.agentDir, "settings.json"), "utf8"))["observational-memory"];
       report.argv = process.argv;
       report.commands = pi.getCommands();
       report.tools = pi.getAllTools();

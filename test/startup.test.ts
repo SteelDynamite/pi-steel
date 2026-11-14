@@ -71,6 +71,7 @@ test("startup defaults to Everything, downloads without confirmation, preserves 
   assert.deepEqual(f.counts(), { reloads: 0, confirmations: 0 });
   const saved = JSON.parse(readFileSync(f.settingsPath, "utf8"));
   assert(saved.packages.some((entry: unknown) => JSON.stringify(entry) === JSON.stringify(f.manual)));
+  assert.deepEqual(saved["observational-memory"], { compactAfterTokens: 204000, observeAfterTokens: 25185, reflectAfterTokens: 50370 });
   assert.equal(saved.theme, "dark");
   assert.deepEqual(saved.skills, ["manual-skills"]);
   assert.equal(JSON.parse(readFileSync(f.configPath, "utf8")).active, "Everything");
@@ -98,6 +99,33 @@ test("startup defaults to Everything, downloads without confirmation, preserves 
   assert(f.notices.some(n => n.type === "info" && n.message === "Steel loadout: Everything"));
   await fresh.command("sync");
   assert.equal(f.counts().reloads, 1);
+});
+
+test("memory-only startup drift is repaired offline, warns until reload, and never downloads", async t => {
+  const f = fixture(t);
+  await f.runtime().start();
+  const document = JSON.parse(readFileSync(f.settingsPath, "utf8"));
+  document["observational-memory"].compactAfterTokens = 250000;
+  document["observational-memory"].observationsPoolMaxTokens = 61728;
+  writeFileSync(f.settingsPath, JSON.stringify(document));
+  f.installs.length = 0;
+  process.env.PI_OFFLINE = "1";
+  const r = f.runtime();
+  await r.command("status");
+  assert.match(f.notices.at(-1)!.message, /Managed OM thresholds:.*compactAfterTokens=204000/);
+  assert.match(f.notices.at(-1)!.message, /Drift/);
+  await r.start();
+  assert.deepEqual(f.installs, []);
+  assert.equal(f.counts().reloads, 0);
+  assert.deepEqual(JSON.parse(readFileSync(f.settingsPath, "utf8")), {
+    ...document, "observational-memory": { ...document["observational-memory"], compactAfterTokens: 204000 },
+  });
+  assert.match(r.context([]).messages[0].content, /managed memory settings.*not applied/);
+  await r.command("sync");
+  assert.equal(f.counts().reloads, 1, "even a no-op sync must reload pending memory settings");
+  const fresh = f.runtime();
+  await fresh.start();
+  assert.equal(fresh.context([]), undefined);
 });
 
 test("orchestrated children skip startup mutations, downloads, and warning injection", async t => {

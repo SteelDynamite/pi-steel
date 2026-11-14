@@ -38,7 +38,7 @@ else console.log('# hc manual (herdr-core)\\n' + process.env.STEEL_HERDR_MANUAL)
       cpSync(join(sourceRoot, "node_modules/pi-observational-memory"), join(agentDir, "git/github.com/elpapi42/pi-observational-memory"), { recursive: true });
       const settingsPath = join(agentDir, "settings.json");
       const configPath = join(agentDir, "steel.json");
-      writeFileSync(settingsPath, JSON.stringify({ packages: [bundledFilters(root, members, ids), { source: memory }], compaction: { enabled: false }, retry: { enabled: false } }));
+      writeFileSync(settingsPath, JSON.stringify({ packages: [bundledFilters(root, members, ids), { source: memory }], compaction: { enabled: false }, retry: { enabled: false }, ...JSON.parse(readFileSync(join(root, "presets/memory/settings.json"), "utf8")) }));
       writeFileSync(configPath, JSON.stringify({ version: 1, active: "Everything", loadouts: {}, managed: [{ source: memory }] }));
       const settingsBefore = readFileSync(settingsPath, "utf8");
       const configBefore = readFileSync(configPath, "utf8");

@@ -37,7 +37,7 @@ for (const variant of ["custom", "memory", "Everything", "ChatBot", "Everything-
     writeFileSync(join(agentDir, "settings.json"), JSON.stringify({
       // Manual loads first to seed restored state before the real goal handler.
       packages: [manual, root, ...(memory ? [{ source: shipped ? memorySource : memoryPath }] : [])], defaultProvider: "steel-local", defaultModel: "fixture",
-      compaction: { enabled: false }, retry: { enabled: false }, ...(memory ? memorySettings : {}),
+      compaction: { enabled: false }, retry: { enabled: false }, ...(memory ? { "observational-memory": shipped ? { compactAfterTokens: 250000, observeAfterTokens: 30864, reflectAfterTokens: 61728 } : memorySettings["observational-memory"] } : {}),
       // The child resolves trust independently; grant it only in this isolated fixture.
       ...(excluded ? { defaultProjectTrust: "always" } : {}),
     }));
@@ -106,6 +106,7 @@ export default function(pi) {
     const child = JSON.parse(readFileSync(childReport, "utf8"));
     assert.equal(child.child, "1");
     assert.equal(child.agentDir, agentDir);
+    if (memory) assert.deepEqual(child.memorySettings, memorySettings["observational-memory"], "child inherits synchronized thresholds, not the parent's old configuration");
     assert(!child.argv.includes("-e") && !child.argv.includes("--extension"));
     const commands = child.commands.map((command: { name: string }) => command.name);
     assert(commands.includes("manual-fixture"));

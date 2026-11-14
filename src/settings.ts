@@ -5,6 +5,7 @@ import lockfile from "proper-lockfile";
 
 /** Public SDK storage contract; no dependency on the host's private storage instance. */
 type SettingsStorage = Parameters<typeof SettingsManager.fromStorage>[0];
+export type MemoryThresholds = Record<"observeAfterTokens" | "reflectAfterTokens" | "compactAfterTokens", number>;
 
 /** Shared by session-start and explicit synchronization; the agent directory must already exist.
  * Compatibility: Pi 1.4.0 FileSettingsStorage uses lockSync(settingsPath,
@@ -13,7 +14,7 @@ type SettingsStorage = Parameters<typeof SettingsManager.fromStorage>[0];
  * symlink aliases, or future hosts that change it. The project file is reread under
  * the global lock but cannot be atomic with independently locked project writes.
  */
-export function transactSettings<T extends { packages: PackageSource[]; changed: boolean }>(
+export function transactSettings<T extends { packages: PackageSource[]; changed: boolean; memoryThresholds?: MemoryThresholds }>(
   cwd: string, agentDir: string, update: (settings: SettingsManager) => T,
 ): T {
   const path = join(agentDir, "settings.json");
@@ -40,7 +41,10 @@ export function transactSettings<T extends { packages: PackageSource[]; changed:
       const temp = `${path}.${process.pid}.tmp`;
       try {
         const mode = existsSync(path) ? statSync(path).mode & 0o7777 : 0o600;
-        writeFileSync(temp, `${JSON.stringify({ ...JSON.parse(current?.replace(/^\uFEFF/, "") ?? "{}"), packages: next.packages }, null, 2)}\n`, { mode });
+        const document = JSON.parse(current?.replace(/^\uFEFF/, "") ?? "{}");
+        const updated = { ...document, packages: next.packages };
+        if (next.memoryThresholds) updated["observational-memory"] = { ...document["observational-memory"], ...next.memoryThresholds };
+        writeFileSync(temp, `${JSON.stringify(updated, null, 2)}\n`, { mode });
         chmodSync(temp, mode); // Creation umask must not narrow existing access.
         renameSync(temp, path);
       } finally {

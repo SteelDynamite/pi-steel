@@ -2,7 +2,7 @@ import { existsSync, readFileSync, realpathSync, renameSync, statSync, writeFile
 import { dirname, join, resolve } from "node:path";
 import { isDeepStrictEqual as equal } from "node:util";
 import { DefaultPackageManager, SettingsManager, type PackageSource } from "@earendil-works/pi-coding-agent";
-import { transactSettings } from "./settings.js";
+import { transactSettings, type MemoryThresholds } from "./settings.js";
 
 export interface Member {
   id: string;
@@ -45,6 +45,18 @@ export function readLoadouts(): { version: 1; default: string; loadouts: Record<
     if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(name) || ["full", "minimal"].includes(name)) throw new Error(`Reserved or invalid shipped loadout: ${name}`);
   }
   return value as { version: 1; default: string; loadouts: Record<string, Loadout> };
+}
+/** Only these three settings are Steel-owned; load from the shipped artifact on every plan. */
+export function readMemoryThresholds(): MemoryThresholds {
+  const value: unknown = JSON.parse(readFileSync(new URL("../presets/memory/settings.json", import.meta.url), "utf8"));
+  if (!record(value)) throw new Error("Invalid shipped memory settings");
+  keys(value, ["observational-memory"]);
+  const thresholds = value["observational-memory"];
+  const names = ["observeAfterTokens", "reflectAfterTokens", "compactAfterTokens"];
+  if (!record(thresholds)) throw new Error("Invalid shipped memory thresholds");
+  keys(thresholds, names);
+  if (names.some(name => !Number.isSafeInteger(thresholds[name]) || (thresholds[name] as number) <= 0)) throw new Error("Memory thresholds must be positive safe integers");
+  return thresholds as MemoryThresholds;
 }
 function validateLoadout(name: string, loadout: unknown, members: Member[]): asserts loadout is Loadout {
   if (!record(loadout)) throw new Error(`Invalid loadout: ${name}`);
@@ -132,7 +144,7 @@ function bundledConflict(installed: string, root: string, members: Member[], inc
 
 type PackageHost = Pick<DefaultPackageManager, "getInstalledPath" | "install">;
 type ProjectDeclarations = ReturnType<SettingsManager["getProjectSettings"]>;
-export interface Plan { packages: PackageSource[]; managed: PackageSource[]; install: string[]; changed: boolean; projectExcluded: string[] }
+export interface Plan { packages: PackageSource[]; managed: PackageSource[]; install: string[]; changed: boolean; projectExcluded: string[]; memoryThresholds?: MemoryThresholds }
 export function plan(config: Config, members: Member[], settings: SettingsManager, host: PackageHost, root: string, agentDir: string, cwd: string, projectDeclarations = settings.getProjectSettings()): Plan {
   const loadout = select(config, members);
   const current = settings.getGlobalSettings().packages ?? [];
@@ -229,7 +241,27 @@ export function plan(config: Config, members: Member[], settings: SettingsManage
   // A cached checkout alone does not establish that the requested ref/version was installed.
   // Reinstall newly claimed/restored declarations through Pi, even when cache files exist.
   const install = loadout.external.filter(source => config.incomplete?.includes(source) || !host.getInstalledPath(source, "user") || !current.some(entry => sameSource(sourceOf(entry), agentDir, source)));
-  return { packages, managed, install, changed: !equal(packages, current), projectExcluded };
+  let memoryThresholds: MemoryThresholds | undefined;
+  let memoryChanged = false;
+  if (loadout.external.some(source => sameSource("git:https://github.com/elpapi42/pi-observational-memory.git", agentDir, source))) {
+    memoryThresholds = readMemoryThresholds();
+    // OM reads project settings directly, independently of Pi's trust decision.
+    // Refuse shadowed policy rather than writing project files or unowned mode keys.
+    for (const [scope, document] of [["Global", settings.getGlobalSettings()], ["Project", projectDeclarations]] as const) {
+      const memory = (document as Record<string, unknown>)["observational-memory"];
+      if (memory === undefined) {
+        if (scope === "Global") memoryChanged = true;
+        continue;
+      }
+      if (!record(memory)) throw new Error(`${scope} observational-memory settings must be an object; settings unchanged`);
+      if (memory.compactAfterTokensMode === "ratio") throw new Error(`${scope} observational-memory compactAfterTokensMode conflicts with Steel's fixed thresholds; remove it or select calibrated mode explicitly`);
+      for (const [key, value] of Object.entries(memoryThresholds)) {
+        if (scope === "Project" && Object.hasOwn(memory, key) && memory[key] !== value) throw new Error(`Project observational-memory ${key} conflicts with Steel's managed value; remove the override explicitly`);
+        if (scope === "Global" && memory[key] !== value) memoryChanged = true;
+      }
+    }
+  }
+  return { packages, managed, install, changed: !equal(packages, current) || memoryChanged, projectExcluded, ...(memoryThresholds ? { memoryThresholds } : {}) };
 }
 
 /** Downloads precede declaration changes. The host has no cancellation API for install();

@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import { getPackageDir } from "@earendil-works/pi-coding-agent";
-import { parseConfig, readConfig, readLoadouts, saveConfig, select } from "../src/manager.js";
+import { parseConfig, readConfig, readLoadouts, readMemoryThresholds, saveConfig, select } from "../src/manager.js";
 
 const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const root = resolve(process.env.STEEL_TEST_PACKAGE_ROOT ?? sourceRoot);
@@ -78,6 +78,17 @@ test("shipped definitions refresh from the module's package, not cwd or steel.js
   const path = join(dir, "loadouts.json");
   writeFileSync(path, JSON.stringify(definitions));
   const manager = await import(pathToFileURL(join(dir, "src/manager.ts")).href);
+  mkdirSync(join(dir, "presets/memory"), { recursive: true });
+  const policyPath = join(dir, "presets/memory/settings.json");
+  writeFileSync(policyPath, JSON.stringify(settings));
+  assert.deepEqual(manager.readMemoryThresholds(), settings["observational-memory"]);
+  const updated = { ...settings["observational-memory"], compactAfterTokens: 203000 };
+  writeFileSync(policyPath, JSON.stringify({ "observational-memory": updated }));
+  assert.deepEqual(manager.readMemoryThresholds(), updated, "policy comes from its installed package, not cwd or a cached import");
+  for (const invalid of [{ ...updated, passive: true }, { ...updated, compactAfterTokens: 0 }, { observeAfterTokens: 1 }]) {
+    writeFileSync(policyPath, JSON.stringify({ "observational-memory": invalid }));
+    assert.throws(() => manager.readMemoryThresholds(), /Unknown|positive safe integers/);
+  }
   const members = [{ id: "first" }, { id: "second" }];
   const config = manager.readConfig(join(dir, "steel.json"), members);
   assert.deepEqual(manager.select(config, members).bundled, ["first"]);
@@ -108,22 +119,22 @@ test("legacy memory preset keeps its selection and follows upstream's default br
   assert.match(lock.packages["node_modules/pi-observational-memory"].resolved, /^git\+https:\/\/github\.com\/elpapi42\/pi-observational-memory\.git#[a-f0-9]{40}$/, "development lockfile still captures an exact artifact");
 });
 
-test("memory thresholds scale proportionally to 250k without changing capacity limits or native compaction", () => {
+test("managed memory thresholds scale proportionally to 204k without owning mode, pools, or native compaction", () => {
   assert.deepEqual(Object.keys(settings), ["observational-memory"]);
   const values = settings["observational-memory"];
-  const keys = ["compactAfterTokens", "observeAfterTokens", "reflectAfterTokens", "observationsPoolMaxTokens", "observationsPoolTargetTokens"];
-  assert.deepEqual(Object.keys(values).sort(), [...keys, "compactAfterTokensMode"].sort());
-  assert.equal(values.compactAfterTokens, 250000);
+  const keys = ["compactAfterTokens", "observeAfterTokens", "reflectAfterTokens"];
+  assert.deepEqual(Object.keys(values).sort(), keys.sort());
+  assert.deepEqual(readMemoryThresholds(), values);
+  assert.equal(values.compactAfterTokens, 204000);
   for (const key of keys) {
-    assert.equal(values[key], Math.round(upstream.DEFAULTS[key] * 250000 / upstream.DEFAULTS.compactAfterTokens), key);
+    assert.equal(values[key], Math.round(upstream.DEFAULTS[key] * 204000 / upstream.DEFAULTS.compactAfterTokens), key);
   }
-  assert.equal(values.compactAfterTokensMode, "calibrated");
   for (const window of [undefined, 128000, 272000, 1000000]) {
-    assert.equal(upstream.resolveCompactAfterTokens({ ...upstream.DEFAULTS, ...values }, window), 250000);
+    assert.equal(upstream.resolveCompactAfterTokens({ ...upstream.DEFAULTS, ...values }, window), 204000);
   }
 });
 
-test("distributed memory entry enforces the 250k boundary and compaction safeguards", { timeout: 30_000 }, () => {
+test("distributed memory entry enforces the 204k boundary and compaction safeguards", { timeout: 30_000 }, () => {
   const home = mkdtempSync(join(tmpdir(), "steel-memory-entry-"));
   try {
     const agentDir = join(home, "agent");

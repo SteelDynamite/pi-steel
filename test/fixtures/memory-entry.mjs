@@ -27,7 +27,7 @@ const idleContext = { cwd: process.env.HOME, sessionManager: { getBranch() { thr
 await idleRun("agent_start", {}, idleContext);
 await idleRun("turn_end", {}, idleContext);
 const run = initialize();
-let tokens = 249999;
+let tokens = 203999;
 let compactions = 0;
 const ctx = {
   cwd: process.env.HOME, hasUI: true, ui: { notify(message) { console.log(message); } }, model: { contextWindow: 1000000 }, isIdle: () => true,
@@ -42,7 +42,7 @@ const ctx = {
 await run("agent_settled", {}, ctx);
 await new Promise(resolve => setTimeout(resolve, 10));
 assert.equal(compactions, 0);
-tokens = 250000;
+tokens = 204000;
 await run("agent_settled", {}, ctx);
 await new Promise(resolve => setTimeout(resolve, 10));
 assert.equal(compactions, 1);
@@ -62,4 +62,4 @@ assert.equal(catchUpFallback.compaction.firstKeptEntryId, "u1", "unavailable cat
 assert.equal(await run("session_before_compact", { ...event, reason: "overflow" }, ctx), undefined, "overflow delegates to native summarizer");
 assert.equal(await initialize({ compactionMaxRetainedTokens: 1 })("session_before_compact", event, ctx), undefined, "oversized retained tail delegates");
 assert.equal(await initialize({ compactionSummaryMaxTokens: 1 })("session_before_compact", event, ctx), undefined, "memory exceeding summary budget delegates");
-console.log("Distributed entry: 250k trigger, idle worker suppression, unobserved retention, overflow and budget delegation passed");
+console.log("Distributed entry: 204k trigger, idle worker suppression, unobserved retention, overflow and budget delegation passed");
