@@ -64,6 +64,35 @@ test("bundled caller rules pin both matching callers to OpenAI and preserve unre
 	}
 });
 
+test("bundled visual worker always selects Astra medium and advertises image inspection", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-subagent-visual-worker-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		process.env.PI_CODING_AGENT_DIR = root;
+		const discovery = discoverAgents(root, false, { includeLocationalAgents: false });
+		assert.deepEqual(discovery.errors, []);
+		const agent = discovery.agents.find((item) => item.id === "worker-visual");
+		assert.equal(agent.origin, "bundled");
+		assert.equal(agent.kind, "behavioral");
+		assert.equal(agent.resumable, false);
+		assert.equal(agent.tools, undefined);
+		assert.equal(agent.model, "openai/gpt-6-astra");
+		assert.equal(agent.thinking, "medium");
+		assert.equal(agent.whenCallerModelId, undefined);
+		assert.match(agent.description, /Recommended worker.*image inspection/);
+		assert.match(agent.systemPrompt, /Inspect the actual images/);
+		for (const model of [caller(), caller("gpt-6.1-sol", "openai"), caller("other"), undefined]) {
+			const resolved = resolveAgentModel(agent, context(model));
+			assert.equal(resolved.model, "openai/gpt-6-astra");
+			assert.equal(resolved.thinking, "medium");
+		}
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previous;
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
 test("caller rules use the immediate context on every nested delegation, never agent names", () => {
 	const agent = { kind: "behavioral", id: "custom", model: "openai/gpt-6-luna", thinking: "high", whenCallerModelId: "gpt-6-astra", thenModel: "caller", thenThinking: "off" };
 	const outer = context(caller());

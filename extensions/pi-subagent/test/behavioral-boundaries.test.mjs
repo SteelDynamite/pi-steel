@@ -64,7 +64,7 @@ test("bundled agents need no project link or root owner: IDs, manifest, prompt, 
 	assert.equal(discovery.projectAgentsDir, null);
 	assert.deepEqual(discovery.locationalAgents, []);
 	assert.equal(makeLocationalManifest(discovery.locationalAgents), undefined);
-	for (const id of ["reviewer", "scout", "worker"]) {
+	for (const id of ["reviewer", "scout", "worker", "worker-visual"]) {
 		assert.equal(discovery.agents.find((agent) => agent.id === id).origin, "bundled");
 		assert.equal(resolveAgent(repo, discovery.agents, id).kind, "behavioral");
 		assert.equal(resolveLocationalAgentId(repo, `agents/${id}`), null);
@@ -91,7 +91,7 @@ test("bundled agents need no project link or root owner: IDs, manifest, prompt, 
 });
 
 test("empty discovery removes only the subagent prompt section", async () => {
-	for (const id of ["reviewer", "scout", "worker"]) {
+	for (const id of ["reviewer", "scout", "worker", "worker-visual"]) {
 		define(join(root, "user", "agents", id), "description: Hidden\nmanifest: false");
 	}
 	const { handlers } = extension();
@@ -105,7 +105,7 @@ test("empty discovery removes only the subagent prompt section", async () => {
 
 test("monorepo ancestor scans exclude bundled companions without project symlinks", async () => {
 	const moduleRoot = join(root, "extensions", "pi-subagent");
-	const ids = ["reviewer", "scout", "worker"];
+	const ids = ["reviewer", "scout", "worker", "worker-visual"];
 	for (const id of ids) {
 		const dir = join(moduleRoot, "agents", id);
 		mkdirSync(dir, { recursive: true });

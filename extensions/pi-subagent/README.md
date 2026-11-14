@@ -147,6 +147,8 @@ thinking: high
 
 `thinking` accepts `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. When declared, every new and resumed child receives `--thinking <level>`, overriding that child's startup and saved-session setting. Omit it to preserve Pi's existing child defaults. A new-session behavioral one-off can override it through `overrides.thinking`; ordinary and resumed calls retain definition policy. Pi still clamps levels to selected-model support.
 
+The bundled `worker-visual` is recommended for any task requiring image inspection, including screenshots, diagrams, and mixed image/text work. It has full worker capabilities and defaults to `openai/gpt-6-astra` with `medium` thinking for every caller, without a conditional caller rule. Pass accessible image paths or URLs in the task; it should inspect actual images and report visual uncertainty rather than infer their contents from text alone. Ordinary model-availability fallback still applies; the role does not enforce vision capability on a fallback model.
+
 ### Behavioral caller overrides
 
 A behavioral definition may declare one flat conditional rule alongside its existing defaults:
@@ -174,7 +176,7 @@ Bundled definitions match **both `gpt-6-astra` and `gpt-6.1-sol`, at every calle
 | Worker | `openai/gpt-6.1-sol` | `medium` |
 | Reviewer | `openai/gpt-6-astra` | `xhigh` |
 
-These explicit targets use `openai` even when the matching caller uses another provider. All unrelated callers retain the existing models (scout `openai/gpt-6-luna`, worker `openai/gpt-6.1-sol`, reviewer `openai/gpt-6-astra`) and omitted thinking. Speed and thinking are independent; inherited environment, including `PI_CHATGPT_SPEED`, passes through unchanged. Ultrafast service still depends on the child's provider, authentication, and `pi-chatgpt` support.
+These explicit targets use `openai` even when the matching caller uses another provider. For these three roles, unrelated callers retain the existing models (scout `openai/gpt-6-luna`, worker `openai/gpt-6.1-sol`, reviewer `openai/gpt-6-astra`) and omitted thinking. Speed and thinking are independent; inherited environment, including `PI_CHATGPT_SPEED`, passes through unchanged. Ultrafast service still depends on the child's provider, authentication, and `pi-chatgpt` support.
 
 Rules are reevaluated for every delegation, including resume. Effective model and declared thinking are passed to the child and reported in results; Pi may clamp thinking to model support. If a custom resumable agent switches to an unmatched rule with omitted thinking, no thinking flag is sent: Pi's saved effort may persist. No restoration mechanism is added. Bundled behavioral agents remain nonresumable. Behavioral provider failures do not gain a runtime fallback retry.
 

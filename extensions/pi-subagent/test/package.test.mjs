@@ -11,7 +11,7 @@ test("package exports no prompt templates and retains behavioral delegation", ()
 	assert.deepEqual(manifest.pi.skills, [], "Herdr guidance is preloaded by its owner, not advertised as a skill");
 	assert(existsSync(new URL("skills/herdr-delegation/SKILL.md", root)));
 	assert.equal(existsSync(new URL("prompts/", root)), false);
-	assert.deepEqual(readdirSync(new URL("agents/", root)).sort(), ["reviewer", "scout", "worker"]);
+	assert.deepEqual(readdirSync(new URL("agents/", root)).sort(), ["reviewer", "scout", "worker", "worker-visual"]);
 
 	const source = readFileSync(new URL("index.ts", root), "utf8");
 	assert.doesNotMatch(source, /name: ["'](?:subprocess|subagents)["']|registerCommand\(["'](?:subprocess|subagents)-settings/);

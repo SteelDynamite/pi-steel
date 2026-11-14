@@ -301,7 +301,7 @@ test("behavioral discovery precedence is bundled, user, then trusted project", (
 		assert.equal(trusted.agents.find((agent) => agent.id === "scout").thenThinking, undefined);
 		assert.equal(trusted.agents.find((agent) => agent.id === "scout").overrides, true);
 		assert.equal(trusted.projectAgentsDir, join(root, ".pi", "agents"));
-		assert.deepEqual(trusted.agents.map((agent) => agent.id).sort(), ["reviewer", "scout", "worker"]);
+		assert.deepEqual(trusted.agents.map((agent) => agent.id).sort(), ["reviewer", "scout", "worker", "worker-visual"]);
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = previous;

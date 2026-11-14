@@ -123,7 +123,7 @@ test("installed extension scanning a separate source checkout has no default loc
 	const discovery = loaded.discoverAgents(checkout, true);
 	assert.deepEqual(discovery.errors, []);
 	assert.deepEqual(discovery.locationalAgents, []);
-	assert.deepEqual(discovery.agents.map((agent) => agent.id).sort(), ["reviewer", "scout", "worker"]);
+	assert.deepEqual(discovery.agents.map((agent) => agent.id).sort(), ["reviewer", "scout", "worker", "worker-visual"]);
 	const { handlers, entries } = register(extension);
 	const ctx = context(checkout, entries);
 	await handlers.get("session_start")({}, ctx);
