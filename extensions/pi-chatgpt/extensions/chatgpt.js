@@ -988,6 +988,9 @@ export default function (pi) {
   let speedMode = STANDARD_MODE
   const inheritedFastEnv = process.env[FAST_ENV]
   const inheritedSpeedEnv = process.env[SPEED_ENV]
+  // Codync's Pi bridge sets this even with no MCP servers ("{}"). RPC alone
+  // also covers other clients and must not opt them into this policy.
+  const isCodyncSession = Boolean(process.env.CODYNC_PI_MCP_SERVERS?.trim())
   let ownedFastEnvValue
   let ownedSpeedEnvValue
 
@@ -1105,13 +1108,14 @@ export default function (pi) {
     if (!active || owner !== generation) return
     const inheritedSpeedMode = parseSpeedEnv(inheritedSpeedEnv)
     const inheritedFastEnabled = parseFastEnv(inheritedFastEnv)
-    speedMode =
-      inheritedSpeedMode ??
-      (inheritedFastEnabled === undefined
-        ? persistentSpeedMode
-        : inheritedFastEnabled
-          ? FAST_MODE
-          : STANDARD_MODE)
+    speedMode = isCodyncSession
+      ? ULTRAFAST_MODE
+      : (inheritedSpeedMode ??
+        (inheritedFastEnabled === undefined
+          ? persistentSpeedMode
+          : inheritedFastEnabled
+            ? FAST_MODE
+            : STANDARD_MODE))
     updateSpeedEnvironment(ctx)
     if (!isTuiContext(ctx)) return
 
@@ -1179,7 +1183,7 @@ export default function (pi) {
                 ? "active"
                 : `selected; unsupported by ${modelName}`
         ctx.ui.notify(
-          `ChatGPT speed: ${label} (${state}).`,
+          `ChatGPT speed: ${label} (${state}).${isCodyncSession ? " Enforced for Codync; saved speed settings are unchanged." : ""}`,
           state === "active" ? "info" : "warning",
         )
         return
@@ -1200,6 +1204,14 @@ export default function (pi) {
         ctx.ui.notify(
           "Usage: /fast temporary|persistent [standard|fast|ultrafast] | off | status",
           "warning",
+        )
+        return
+      }
+
+      if (isCodyncSession) {
+        ctx.ui.notify(
+          "Ultrafast is enforced for Codync sessions; saved speed settings are unchanged.",
+          selectedSpeedMode === ULTRAFAST_MODE ? "info" : "warning",
         )
         return
       }
