@@ -1,7 +1,7 @@
 {
   "observational-memory": {
-    "compactAfterTokens": 204000,
-    "observeAfterTokens": 25185,
-    "reflectAfterTokens": 50370
+    "compactAfterTokens": 180000,
+    "observeAfterTokens": 30000,
+    "reflectAfterTokens": 60000
   }
 }

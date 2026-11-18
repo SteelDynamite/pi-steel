@@ -2,7 +2,7 @@
 
 ## Scope
 
-- Develop `SteelDynamite/pi-steel` in `/projects/repos/pi-steel`: one distributable Pi package with independently selectable extensions and a loadout manager, not one coupled extension or a general package registry.
+- Develop `SteelDynamite/pi-steel` in `/var/home/core/repos/pi-steel`: one distributable Pi package with independently selectable extensions and a loadout manager, not one coupled extension or a general package registry.
 - Keep modules under `extensions/<existing-package-name>/`. Preserve their tests, assets, licenses, attribution, configuration paths, and persisted identities. Use `extensions.manifest.json` for provenance and companion ownership; do not duplicate its catalog in prose.
 - Use ordinary `AGENTS.md` guidance, not repository/module locational ownership markers or mandatory source delegation. Preserve bundled behavioral `SUBAGENTS.md` definitions and test fixtures.
 

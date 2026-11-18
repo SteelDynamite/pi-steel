@@ -71,7 +71,7 @@ test("startup defaults to Everything, downloads without confirmation, preserves 
   assert.deepEqual(f.counts(), { reloads: 0, confirmations: 0 });
   const saved = JSON.parse(readFileSync(f.settingsPath, "utf8"));
   assert(saved.packages.some((entry: unknown) => JSON.stringify(entry) === JSON.stringify(f.manual)));
-  assert.deepEqual(saved["observational-memory"], { compactAfterTokens: 204000, observeAfterTokens: 25185, reflectAfterTokens: 50370 });
+  assert.deepEqual(saved["observational-memory"], { compactAfterTokens: 180000, observeAfterTokens: 30000, reflectAfterTokens: 60000 });
   assert.equal(saved.theme, "dark");
   assert.deepEqual(saved.skills, ["manual-skills"]);
   assert.equal(JSON.parse(readFileSync(f.configPath, "utf8")).active, "Everything");
@@ -112,13 +112,13 @@ test("memory-only startup drift is repaired offline, warns until reload, and nev
   process.env.PI_OFFLINE = "1";
   const r = f.runtime();
   await r.command("status");
-  assert.match(f.notices.at(-1)!.message, /Managed OM thresholds:.*compactAfterTokens=204000/);
+  assert.match(f.notices.at(-1)!.message, /Managed OM thresholds:.*compactAfterTokens=180000/);
   assert.match(f.notices.at(-1)!.message, /Drift/);
   await r.start();
   assert.deepEqual(f.installs, []);
   assert.equal(f.counts().reloads, 0);
   assert.deepEqual(JSON.parse(readFileSync(f.settingsPath, "utf8")), {
-    ...document, "observational-memory": { ...document["observational-memory"], compactAfterTokens: 204000 },
+    ...document, "observational-memory": { ...document["observational-memory"], compactAfterTokens: 180000 },
   });
   assert.match(r.context([]).messages[0].content, /managed memory settings.*not applied/);
   await r.command("sync");

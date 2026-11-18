@@ -112,11 +112,11 @@ Steel manages exactly three keys in `<agent-dir>/settings.json`'s `observational
 
 | Managed key | Tokens |
 | --- | ---: |
-| `compactAfterTokens` | 204,000 |
-| `observeAfterTokens` | 25,185 |
-| `reflectAfterTokens` | 50,370 |
+| `observeAfterTokens` | 30,000 |
+| `reflectAfterTokens` | 60,000 |
+| `compactAfterTokens` | 180,000 |
 
-These scale upstream's scheduling defaults by `204000 / 81000`, rounded to whole tokens. Compaction is fixed at 204K: nominally 75% of a 272K window, **not** automatically 75% of every model. OM counts estimated observed source-history tokens, not total model context. Its default `calibrated` mode uses the fixed threshold; Pi's native context-pressure compaction remains independent.
+OM checks its fixed compaction threshold when the agent loop settles. With Pi auto-compaction enabled, OM counts estimated source tokens the observer has covered, not total model context. The threshold therefore does not guarantee compaction at a particular context-window percentage. Pi's independent context-pressure check can still trigger during a running loop.
 
 When the selected loadout includes upstream Git memory, session-start synchronization and `/steel use` or `/steel sync` replace local values for those three keys. Updated Steel packages supply the current values dynamically; they are not copied into `steel.json`. This includes custom loadouts selecting the same upstream Git identity, but not arbitrary local or npm memory packages. Existing package ownership checks still apply: Steel will not silently claim a manually installed memory package.
 

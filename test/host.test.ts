@@ -210,7 +210,7 @@ async function exerciseHost(): Promise<void> {
         const start = notices.length;
         await session.prompt("/om:status");
         const status = notices.slice(start).join("\n");
-        for (const [label, value] of [["Next observation", 25185], ["Next reflection", 50370], ["Next compaction", 204000], ["Visible observation pool", 20000], ["Active observation pool", 10000]] as const) {
+        for (const [label, value] of [["Next observation", 30000], ["Next reflection", 60000], ["Next compaction", 180000], ["Visible observation pool", 20000], ["Active observation pool", 10000]] as const) {
           assert(status.split("\n").some(line => line.startsWith(`${label}:`) && line.includes(`/ ${value.toLocaleString()} `)), status);
         }
         const beforeSync: number = reloads;

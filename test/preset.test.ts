@@ -119,22 +119,17 @@ test("legacy memory preset keeps its selection and follows upstream's default br
   assert.match(lock.packages["node_modules/pi-observational-memory"].resolved, /^git\+https:\/\/github\.com\/elpapi42\/pi-observational-memory\.git#[a-f0-9]{40}$/, "development lockfile still captures an exact artifact");
 });
 
-test("managed memory thresholds scale proportionally to 204k without owning mode, pools, or native compaction", () => {
+test("managed memory thresholds are fixed without owning mode, pools, or native compaction", () => {
   assert.deepEqual(Object.keys(settings), ["observational-memory"]);
   const values = settings["observational-memory"];
-  const keys = ["compactAfterTokens", "observeAfterTokens", "reflectAfterTokens"];
-  assert.deepEqual(Object.keys(values).sort(), keys.sort());
+  assert.deepEqual(values, { observeAfterTokens: 30000, reflectAfterTokens: 60000, compactAfterTokens: 180000 });
   assert.deepEqual(readMemoryThresholds(), values);
-  assert.equal(values.compactAfterTokens, 204000);
-  for (const key of keys) {
-    assert.equal(values[key], Math.round(upstream.DEFAULTS[key] * 204000 / upstream.DEFAULTS.compactAfterTokens), key);
-  }
   for (const window of [undefined, 128000, 272000, 1000000]) {
-    assert.equal(upstream.resolveCompactAfterTokens({ ...upstream.DEFAULTS, ...values }, window), 204000);
+    assert.equal(upstream.resolveCompactAfterTokens({ ...upstream.DEFAULTS, ...values }, window), values.compactAfterTokens);
   }
 });
 
-test("distributed memory entry enforces the 204k boundary and compaction safeguards", { timeout: 30_000 }, () => {
+test("distributed memory entry enforces the shipped compaction boundary and compaction safeguards", { timeout: 30_000 }, () => {
   const home = mkdtempSync(join(tmpdir(), "steel-memory-entry-"));
   try {
     const agentDir = join(home, "agent");
