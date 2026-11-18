@@ -52,9 +52,15 @@ export type SubagentToolParams = {
 };
 
 export default async function (pi: ExtensionAPI) {
-	if (process.env.HC_TERMINAL_ID?.trim()) {
+	let warning = "";
+	// Match pi-chatgpt's Codync bridge signal, including an empty server map ("{}").
+	// Codync takes precedence over an inherited hc identity; RPC alone is not enough.
+	if (process.env.CODYNC_PI_MCP_SERVERS?.trim()) {
+		if (!locationalAgentsEnabled()) return;
+		warning = "Codync detected; keeping native subagents because PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS=1 enables locational guards.";
+	} else if (process.env.HC_TERMINAL_ID?.trim()) {
 		const skillPath = fileURLToPath(new URL("./skills/herdr-delegation/SKILL.md", import.meta.url));
-		let warning = "Herdr detected, but hc --skill is unavailable. Keeping native subagents. Install/update hc (https://herdr.dev/core/), ensure it is on Pi's PATH, then /reload.";
+		warning = "Herdr detected, but hc --skill is unavailable. Keeping native subagents. Install/update hc (https://herdr.dev/core/), ensure it is on Pi's PATH, then /reload.";
 		if (locationalAgentsEnabled()) {
 			// An automatic handoff must not silently remove explicitly enabled guards.
 			warning = "Herdr detected; keeping native subagents because PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS=1 enables locational guards.";
@@ -83,14 +89,14 @@ export default async function (pi: ExtensionAPI) {
 				}
 			} catch { /* Missing or unusable hc retains the normal delegation path. */ }
 		}
-		if (process.env.PI_ORCHESTRATED_CHILD !== "1") {
-			let warned = false;
-			pi.on("session_start", (_event, ctx) => {
-				if (warned || !ctx.hasUI) return;
-				warned = true;
-				ctx.ui.notify(warning, "warning");
-			});
-		}
+	}
+	if (warning && process.env.PI_ORCHESTRATED_CHILD !== "1") {
+		let warned = false;
+		pi.on("session_start", (_event, ctx) => {
+			if (warned || !ctx.hasUI) return;
+			warned = true;
+			ctx.ui.notify(warning, "warning");
+		});
 	}
 	registerLocationalManifestRenderer(pi);
 	pi.on("session_start", async (_event, ctx) => {

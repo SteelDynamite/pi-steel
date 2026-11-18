@@ -4,6 +4,10 @@ Read `README.md` for product behavior, installation, and validation commands. Th
 
 Keep native delegation foreground-managed: each `subagent` call launches one isolated Pi child, shows progress, waits, and returns one result. Built-in `bash` owns shell commands and Pi owns concurrent sibling tool execution. Do not bundle or export slash-command prompt templates; behavioral definitions and internal delegation prompts remain part of the extension. Do not add detached jobs, background polling, or general command execution to this extension. Preserve `exposure: "model-only"` for direct tool rendering and progress.
 
+## Codync suppression
+
+A nonblank `CODYNC_PI_MCP_SERVERS` suppresses all registration before Herdr detection, unless `PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS=1` explicitly enables guards. The exception retains native delegation and warns once per TUI/RPC parent runtime; orchestrated children stay quiet. Do not probe hc, inject delegation guidance, mutate global filters, or infer Codync from RPC mode alone. Keep detection aligned with `pi-chatgpt`; the bridge variable is an internal upstream signal, not a stable API.
+
 ## Herdr handoff
 
 Keep hc detection and handoff process-local; never switch Steel settings. Check only `hc --skill`, with bounded time/output, before choosing registration. A failed check retains native delegation; suppress fallback notices in orchestrated children. Explicit locational opt-in retains native guards. Reuse the startup manual in a named `before_agent_start` prompt section with the bundled guide and only the known launch-context fields. Never advertise the preloaded guide as a skill, rerun discovery per model turn, replace the whole system prompt, or dump the general process environment. Do not translate behavioral definitions or implicitly copy model/effort/speed into hc launches; the guide must preserve child-marker and agent-directory guidance. Test native/handoff reloads, missing hc, and owner exclusion with isolated homes.

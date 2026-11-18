@@ -84,6 +84,10 @@ An unrelated replacement can be added separately through Pi's normal resource se
 
 Paseo control tools default **off**. Use `/paseo` or `/paseo tools on|off`; the global setting lives in `<agent-dir>/paseo.json`. This controls only `pi-paseo`'s own tool, leaving Paseo-injected tools untouched. Controls use the existing Paseo CLI and require one unambiguous inherited `PASEO_HOME` or `PASEO_HOST`; the extension does not read credentials or edit Paseo settings. See the module README for commands, notification limits, and validation boundaries.
 
+### Codync
+
+With `pi-chatgpt` and `pi-subagent` selected, detected Codync sessions enforce Ultrafast and suppress native Pi subagents without changing shared loadout settings. Explicitly enabled locational guards (`PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS=1`) retain native delegation and produce one parent-runtime warning instead. Detection uses Codync's internal Pi bridge environment variable, not generic RPC mode. See [speed policy](extensions/pi-chatgpt/README.md#codync-sessions) and [delegation policy](extensions/pi-subagent/README.md#codync-suppression) for eligibility, detection limits, and reload behavior.
+
 ### Herdr (`hc`)
 
 Keep `Everything`, `ChatBot`, or a custom loadout containing `pi-subagent`. Inside [Herdr](https://herdr.dev/core/), `pi-subagent` detects `HC_TERMINAL_ID` and checks `hc --skill`. If available, it preloads the installed manual, bundled delegation guidance, and current session launch values into the model's context instead of registering the native `subagent` tool, settings command, and behavioral-agent advertising. No initial skill read, repeated `hc --skill`, or environment lookup is needed. No separate Herdr extension, skill package, or loadout is required.

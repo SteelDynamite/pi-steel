@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, test } from "node:test";
 import subagentExtension from "../index.ts";
 
 beforeEach(() => {
-	for (const key of ["HC_TERMINAL_ID", "HERDR_ENV", "PI_ORCHESTRATED_CHILD", "PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS"]) delete process.env[key];
+	for (const key of ["HC_TERMINAL_ID", "HERDR_ENV", "PI_ORCHESTRATED_CHILD", "PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS", "CODYNC_PI_MCP_SERVERS", "CODYNC_HOME", "PI_ACP_PI_COMMAND"]) delete process.env[key];
 });
 
 async function register(result = { code: 0, stdout: "# hc manual (herdr-core)", stderr: "" }) {
@@ -12,11 +15,12 @@ async function register(result = { code: 0, stdout: "# hc manual (herdr-core)", 
 	const tools = [];
 	const probes = [];
 	const notices = [];
+	const renderers = [];
 	await subagentExtension({
 		on(name, handler) { handlers.set(name, [...(handlers.get(name) ?? []), handler]); },
 		registerCommand(name, command) { commands.set(name, command); },
 		registerTool(tool) { tools.push(tool); },
-		registerEntryRenderer() {},
+		registerEntryRenderer(...args) { renderers.push(args); },
 		appendEntry() {},
 		async exec(...args) {
 			probes.push(args);
@@ -30,7 +34,7 @@ async function register(result = { code: 0, stdout: "# hc manual (herdr-core)", 
 		ui: { notify: (...args) => notices.push(args) },
 	};
 	const start = async () => { for (const handler of handlers.get("session_start") ?? []) await handler({}, ctx); };
-	return { handlers, commands, tools, probes, notices, ctx, start };
+	return { handlers, commands, tools, probes, notices, renderers, ctx, start };
 }
 
 for (const id of [undefined, "", "  "]) test(`no hc identity (${JSON.stringify(id)}): native delegation without a probe`, async () => {
@@ -118,6 +122,104 @@ for (const mode of ["child", "print"]) test(`fallback stays quiet for ${mode}`, 
 	await result.start();
 	assert.equal(result.tools[0].name, "subagent");
 	assert.deepEqual(result.notices, []);
+});
+
+for (const marker of [undefined, "", " \t\n"]) test(`absent Codync marker retains ordinary RPC delegation: ${JSON.stringify(marker)}`, async () => {
+	if (marker !== undefined) process.env.CODYNC_PI_MCP_SERVERS = marker;
+	process.env.CODYNC_HOME = "/unused";
+	process.env.PI_ACP_PI_COMMAND = "pi";
+	const result = await register();
+	result.ctx.mode = "rpc";
+	assert.equal(result.tools[0].name, "subagent");
+	assert(result.commands.has("subagent-settings"));
+	await result.start();
+	assert.deepEqual(result.notices, []);
+	assert.deepEqual(result.probes, []);
+});
+
+for (const marker of ["{}", '{"memory":{"command":"unused"}}']) {
+	for (const child of [false, true]) test(`Codync suppresses all registration before hc (marker=${marker}, child=${child})`, async () => {
+		process.env.CODYNC_PI_MCP_SERVERS = marker;
+		process.env.HC_TERMINAL_ID = "t-overlap";
+		if (child) process.env.PI_ORCHESTRATED_CHILD = "1";
+		for (const gate of [undefined, "0", "true", " 1", "1 "]) {
+			if (gate === undefined) delete process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS;
+			else process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS = gate;
+			const before = { ...process.env };
+			const result = await register();
+			assert.deepEqual(result.tools, []);
+			assert.equal(result.commands.size, 0);
+			assert.equal(result.handlers.size, 0);
+			assert.deepEqual(result.renderers, []);
+			assert.deepEqual(result.probes, []);
+			await result.start();
+			assert.deepEqual(result.notices, []);
+			assert.deepEqual({ ...process.env }, before, "suppression does not mutate the environment");
+		}
+	});
+}
+
+for (const child of [false, true]) test(`Codync locational opt-in retains native guards without hc (child=${child})`, async t => {
+	process.env.CODYNC_PI_MCP_SERVERS = "{}";
+	process.env.HC_TERMINAL_ID = "t-overlap";
+	process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS = "1";
+	if (child) process.env.PI_ORCHESTRATED_CHILD = "1";
+	const result = await register();
+	result.ctx.mode = "rpc";
+	assert.equal(result.tools[0].name, "subagent");
+	assert.equal(result.tools[0].exposure, "model-only");
+	assert(result.commands.has("subagent-settings"));
+	assert(result.handlers.has("tool_call"));
+	assert.deepEqual(result.probes, []);
+	const event = { systemPromptOptions: { contextFiles: [], selectedTools: [], sections: {} } };
+	for (const handler of result.handlers.get("before_agent_start")) await handler(event, result.ctx);
+	assert.match(event.systemPromptOptions.sections.pi_subagent, /<id>worker<\/id>/);
+	assert.equal(event.systemPromptOptions.sections.herdr_delegation, undefined);
+	await result.start();
+	await result.start();
+	assert.equal(result.notices.length, child ? 0 : 1);
+	if (!child) {
+		assert.match(result.notices[0][0], /Codync detected.*PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS=1.*locational guards/);
+		assert.equal(result.notices[0][1], "warning");
+	}
+	const directory = mkdtempSync(join(tmpdir(), "pi-codync-guard-"));
+	t.after(() => rmSync(directory, { recursive: true, force: true }));
+	const owned = join(directory, "owned");
+	mkdirSync(owned);
+	writeFileSync(join(owned, "SUBAGENTS.md"), "---\ndescription: Owned area\n---\nGuard this area.\n");
+	writeFileSync(join(owned, "file.ts"), "// fixture\n");
+	result.ctx.cwd = directory;
+	result.ctx.isProjectTrusted = () => true;
+	const blocked = await result.handlers.get("tool_call")[0]({ toolName: "read", input: { path: join(owned, "file.ts") } }, result.ctx);
+	assert.equal(blocked.block, true, "explicitly enabled boundaries remain enforced");
+	assert.match(blocked.reason, /Locational boundary enforced/);
+});
+
+test("Codync opt-in warning waits for UI and stays quiet without it", async () => {
+	process.env.CODYNC_PI_MCP_SERVERS = "{}";
+	process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS = "1";
+	const result = await register();
+	result.ctx.hasUI = false;
+	result.ctx.mode = "print";
+	await result.start();
+	assert.deepEqual(result.notices, []);
+	result.ctx.hasUI = true;
+	result.ctx.mode = "rpc";
+	await result.start();
+	await result.start();
+	assert.equal(result.notices.length, 1);
+});
+
+test("fresh registrations reevaluate Codync suppression and preserve non-Codync hc handoff", async () => {
+	process.env.CODYNC_PI_MCP_SERVERS = "{}";
+	assert.equal((await register()).tools.length, 0);
+	delete process.env.CODYNC_PI_MCP_SERVERS;
+	assert.equal((await register()).tools[0].name, "subagent");
+	process.env.HC_TERMINAL_ID = "t7";
+	const handoff = await register();
+	assert.equal(handoff.tools.length, 0);
+	assert.deepEqual([...handoff.handlers.keys()], ["before_agent_start"]);
+	assert.equal(handoff.probes.length, 1);
 });
 
 test("explicit locational guards prevent automatic handoff", async () => {
