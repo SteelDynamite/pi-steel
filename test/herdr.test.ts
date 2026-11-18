@@ -116,13 +116,13 @@ else console.log('# hc manual (herdr-core)\\n' + process.env.STEEL_HERDR_MANUAL)
     assert(localModel);
     await session.setModel(localModel);
     let expectedManual = "manual-v1";
-    const check = async (herdr: boolean, native: boolean) => {
+    const check = async (herdr: boolean, native: boolean, todo = true) => {
       const probes = process.env.STEEL_HERDR_PROBES!;
       const probesBefore = existsSync(probes) ? readFileSync(probes, "utf8") : "";
       assert.equal(session.getActiveToolNames().includes("subagent"), native);
       assert.equal(!!session.extensionRunner.getCommand("subagent-settings"), native);
       assert(!loader.getSkills().skills.some(skill => skill.name === "herdr-delegation"), "preloaded guide must not invite a redundant skill read");
-      assert(session.getActiveToolNames().includes("todo"));
+      assert.equal(session.getActiveToolNames().includes("todo"), todo);
       assert(session.getActiveToolNames().includes("recall"));
       assert(loader.getSkills().skills.some(skill => skill.name === "doc-manifests-designer"));
       const before = await session.extensionRunner.emitBeforeAgentStart({ messageType: "user", prompt: "Inspect available delegation", images: undefined }, { cwd, selectedTools: session.getActiveToolNames() });
@@ -149,14 +149,15 @@ else console.log('# hc manual (herdr-core)\\n' + process.env.STEEL_HERDR_MANUAL)
     };
     const handedOff = variant === "herdr" || variant === "child";
     const native = !handedOff && variant !== "codync";
-    await check(handedOff, native);
-    await check(handedOff, native);
+    const todo = !variant.startsWith("codync");
+    await check(handedOff, native, todo);
+    await check(handedOff, native, todo);
     assert.equal(notices.filter(message => /keeping native subagents/i.test(message)).length, ["fallback", "timeout", "codync-guards"].includes(variant) ? 1 : 0);
     if (variant.startsWith("codync")) {
       assert(!existsSync(process.env.STEEL_HERDR_PROBES!), "Codync never probes hc, including with guards enabled");
       assert.equal(process.env.PI_CHATGPT_SPEED, "ultrafast", "Codync speed policy coexists with delegation suppression");
       await session.reload();
-      await check(false, native);
+      await check(false, native, false);
       assert(!existsSync(process.env.STEEL_HERDR_PROBES!));
       delete process.env.CODYNC_PI_MCP_SERVERS;
       delete process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS;

@@ -170,6 +170,22 @@ describe("tool safety", () => {
 	});
 });
 
+describe("Codync registration", () => {
+	it("skips all hooks and tools only for a nonblank bridge marker", (t) => {
+		const key = "CODYNC_PI_MCP_SERVERS";
+		const original = process.env[key];
+		t.after(() => { if (original === undefined) delete process.env[key]; else process.env[key] = original; });
+		for (const marker of ["{}", '{"memory":{}}']) {
+			process.env[key] = marker;
+			createExtension(new Proxy({} as never, { get: (_api, name) => assert.fail(`Unexpected Pi API access: ${String(name)}`) }));
+		}
+		for (const marker of [undefined, "", " \t"]) {
+			if (marker === undefined) delete process.env[key]; else process.env[key] = marker;
+			createHarness("rpc"); // Asserts the native tool was registered.
+		}
+	});
+});
+
 describe("mode-specific widget behavior", () => {
 	it("resets auto-hide on tree navigation and never leaks a malformed branch", async () => {
 		const branch = [toolEntry({ todos: [{ id: 1, text: "A", state: "done" }], nextId: 2, title: "A" })];
