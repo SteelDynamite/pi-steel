@@ -428,7 +428,7 @@ export async function runDelegation(
 					const childModel = model.model === formatModelRef(ctx.model) ? ctx.model
 						: ctx.modelRegistry.getAvailable().find((candidate) => formatModelRef(candidate) === model.model);
 					// pi-chatgpt's Ultrafast eligibility; parent FAST describes the parent, not this child.
-					if (childModel && ["gpt-6-astra", "gpt-6.1-sol"].includes(childModel.id) && childModel.provider === "openai" && ctx.modelRegistry.isUsingOAuth?.(childModel)) {
+					if (childModel && ["gpt-6-astra", "gpt-6.1-sol", "gpt-6.2-astra", "gpt-6.2-sol"].includes(childModel.id) && childModel.provider === "openai" && ctx.modelRegistry.isUsingOAuth?.(childModel)) {
 						result.requestedSpeed = "ultrafast";
 					}
 				}

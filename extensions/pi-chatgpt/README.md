@@ -115,7 +115,7 @@ The candidate schema comes from [OpenAI Codex's parser](https://github.com/opena
 
 - **Standard** sends no `service_tier` override.
 - **Fast** sends `service_tier: "priority"` for GPT-5.4, GPT-5.5, GPT-5.6 Sol (`gpt-5.6-sol`), GPT-5.6 Terra (`gpt-5.6-terra`), and GPT-5.6 Luna (`gpt-5.6-luna`).
-- **Ultrafast** sends `service_tier: "ultrafast"` for GPT-6 Astra (`gpt-6-astra`) and GPT-6.1 Sol (`gpt-6.1-sol`), as supported by [OpenAI's Ultrafast mode](https://developers.openai.com/api/docs/guides/ultrafast-mode).
+- **Ultrafast** sends `service_tier: "ultrafast"` for GPT-6 Astra (`gpt-6-astra`), GPT-6.1 Sol (`gpt-6.1-sol`), GPT-6.2 Astra (`gpt-6.2-astra`), and GPT-6.2 Sol (`gpt-6.2-sol`). See [OpenAI's Ultrafast mode](https://developers.openai.com/api/docs/guides/ultrafast-mode) and [GPT-6.2 launch support](https://developers.openai.com/codex/whats-new/gpt-62-astra-sol).
 
 ```txt
 /fast temporary [standard|fast|ultrafast]   Select for this session

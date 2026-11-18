@@ -10,7 +10,7 @@ Key product behavior to preserve:
 2. `/chatgpt` retains saved display preferences and explains unavailable usage with the ChatGPT Settings → Usage fallback; `/chatgpt-limit` remains a compatibility alias.
 3. Preserve weekly, 5-hour, both, hidden, used/remaining/pace percent and reset-time preferences without letting them reenable blocked quota display.
 4. Settings persist globally in `~/.pi/agent/chatgpt.json`; legacy `chatgpt-limit.json` settings migrate automatically.
-5. `/fast temporary|persistent [standard|fast|ultrafast]`, `/fast off`, and `/fast status` preserve legacy Fast commands; Fast injects `service_tier: "priority"` for its supported Codex models, while Ultrafast injects `service_tier: "ultrafast"` only for `gpt-6-astra` and `gpt-6.1-sol`. Both modes require ChatGPT OAuth. Do not gate either mode by plan metadata.
+5. `/fast temporary|persistent [standard|fast|ultrafast]`, `/fast off`, and `/fast status` preserve legacy Fast commands; Fast injects `service_tier: "priority"` for its supported Codex models, while Ultrafast injects `service_tier: "ultrafast"` only for `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6.2-astra`, and `gpt-6.2-sol`. Both modes require ChatGPT OAuth. Do not gate either mode by plan metadata.
 6. The footer labels only an effective `Fast` or `Ultrafast` selection. Unsupported selections provide clear command feedback and send no override.
 7. Selected speed propagates through `PI_CHATGPT_SPEED=standard|fast|ultrafast`; effective acceleration continues to propagate through `PI_CHATGPT_FAST=1|0`. Restore both previous values on shutdown.
 8. Persistent config stores `speedMode` plus the compatibility `fastMode` boolean; normalize existing booleans to Fast/Standard without breaking legacy files.

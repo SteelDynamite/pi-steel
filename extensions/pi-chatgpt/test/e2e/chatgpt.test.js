@@ -655,13 +655,27 @@ test("normalizes config and formats percentages without a TUI", () => {
     { model: "gpt-6-astra", service_tier: "ultrafast" },
   )
   assert.equal(__test__.addFastServiceTier(null), undefined)
-  for (const id of ["gpt-6-astra", "gpt-6.1-sol"]) {
+  for (const id of [
+    "gpt-6-astra",
+    "gpt-6.1-sol",
+    "gpt-6.2-astra",
+    "gpt-6.2-sol",
+  ]) {
     assert.equal(
       __test__.isUltrafastSupportedModel({ provider: "openai", id }),
       true,
     )
   }
-  for (const id of ["gpt-5.5", "gpt-6-sol", "gpt-6.1-sol-pro"]) {
+  for (const id of [
+    "gpt-5.5",
+    "gpt-6-sol",
+    "gpt-6.1-sol-pro",
+    "gpt-6.2-terra",
+    "gpt-6.2-astra-pro",
+    "gpt-6.2-sol-pro",
+    "GPT-6.2-ASTRA",
+    "GPT-6.2-SOL",
+  ]) {
     assert.equal(
       __test__.isUltrafastSupportedModel({ provider: "openai", id }),
       false,
@@ -913,7 +927,7 @@ test("speed commands migrate config, patch tiers, report support, and manage inh
     )
     assert.match(
       notifications.at(-1).message,
-      /Not active: openai\/gpt-5\.6-sol does not support Ultrafast mode.*gpt-6-astra and gpt-6\.1-sol only/,
+      /Not active: openai\/gpt-5\.6-sol does not support Ultrafast mode.*gpt-6-astra, gpt-6\.1-sol, gpt-6\.2-astra, gpt-6\.2-sol only/,
     )
     assert.equal(notifications.at(-1).type, "warning")
 
@@ -992,13 +1006,20 @@ test("speed commands migrate config, patch tiers, report support, and manage inh
     for (const id of [
       "gpt-6.1-sol",
       "gpt-6-astra",
+      "gpt-6.2-astra",
+      "gpt-6.2-sol",
       "gpt-6-sol",
       "gpt-6.1-sol-pro",
       "gpt-6.1-sol",
     ]) {
       ctx.model.id = id
       childHandlers.get("model_select")({ model: ctx.model }, ctx)
-      const supported = id === "gpt-6-astra" || id === "gpt-6.1-sol"
+      const supported = [
+        "gpt-6-astra",
+        "gpt-6.1-sol",
+        "gpt-6.2-astra",
+        "gpt-6.2-sol",
+      ].includes(id)
       assert.equal(process.env.PI_CHATGPT_FAST, supported ? "1" : "0")
       assert.equal(process.env.PI_CHATGPT_SPEED, "ultrafast")
       const payload = { model: id, service_tier: "default" }
@@ -1182,10 +1203,43 @@ test("unified openai OAuth supports speed modes while quota fails closed for all
       await commands.get("fast").handler("temporary ultrafast", ctx)
       assert.equal(notifications.at(-1).type, "warning")
     }
+    for (const id of ["gpt-6.2-astra", "gpt-6.2-sol"]) {
+      ctx.model.id = id
+      handlers.get("model_select")({ model: ctx.model }, ctx)
+      assert.equal(process.env.PI_CHATGPT_FAST, "1")
+      assert.equal(process.env.PI_CHATGPT_SPEED, "ultrafast")
+      await commands.get("fast").handler("temporary ultrafast", ctx)
+      assert.deepEqual(notifications.at(-1), {
+        message: "Ultrafast mode selected temporarily.",
+        type: "info",
+      })
+      await commands.get("fast").handler("status", ctx)
+      assert.equal(
+        notifications.at(-1).message,
+        "ChatGPT speed: Ultrafast (active).",
+      )
+      const payload = { model: id, service_tier: "default" }
+      assert.deepEqual(
+        handlers.get("before_provider_request")({ payload }, ctx),
+        { ...payload, service_tier: "ultrafast" },
+      )
+      assert.equal(payload.service_tier, "default")
+      assert.match(footer(), /Ultrafast/)
+      await commands.get("fast").handler("temporary standard", ctx)
+      assert.equal(process.env.PI_CHATGPT_FAST, "0")
+      assert.equal(
+        handlers.get("before_provider_request")({ payload }, ctx),
+        undefined,
+      )
+      assert.doesNotMatch(footer(), /Ultrafast/)
+      await commands.get("fast").handler("temporary ultrafast", ctx)
+    }
     oauth = false
     for (const [id, mode] of [
       ["gpt-6-astra", "ultrafast"],
       ["gpt-6.1-sol", "ultrafast"],
+      ["gpt-6.2-astra", "ultrafast"],
+      ["gpt-6.2-sol", "ultrafast"],
       ["gpt-5.5", "fast"],
     ]) {
       ctx.model.id = id
@@ -1226,6 +1280,8 @@ test("unified openai OAuth supports speed modes while quota fails closed for all
         ["gpt-5.5", "fast"],
         ["gpt-6-astra", "ultrafast"],
         ["gpt-6.1-sol", "ultrafast"],
+        ["gpt-6.2-astra", "ultrafast"],
+        ["gpt-6.2-sol", "ultrafast"],
       ]) {
         ctx.model.id = id
         await commands.get("fast").handler(`temporary ${mode}`, ctx)

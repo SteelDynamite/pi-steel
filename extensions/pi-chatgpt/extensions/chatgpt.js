@@ -52,7 +52,12 @@ const FAST_SUPPORTED_MODELS = new Set([
   "gpt-5.6-terra",
   "gpt-5.6-luna",
 ])
-const ULTRAFAST_SUPPORTED_MODELS = new Set(["gpt-6-astra", "gpt-6.1-sol"])
+const ULTRAFAST_SUPPORTED_MODELS = new Set([
+  "gpt-6-astra",
+  "gpt-6.1-sol",
+  "gpt-6.2-astra",
+  "gpt-6.2-sol",
+])
 
 const DEFAULT_FOOTER_CONFIG = {
   quotaWindow: "weekly",
@@ -1229,8 +1234,7 @@ export default function (pi) {
             : "the current model"
           message += ` Not active: ${modelName} does not support ${SPEED_MODE_LABELS[speedMode]} mode.`
           if (speedMode === ULTRAFAST_MODE)
-            message +=
-              " Ultrafast currently supports gpt-6-astra and gpt-6.1-sol only."
+            message += ` Ultrafast currently supports ${[...ULTRAFAST_SUPPORTED_MODELS].join(", ")} only.`
         }
       }
       ctx.ui.notify(

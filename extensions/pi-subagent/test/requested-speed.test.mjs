@@ -11,6 +11,8 @@ process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS = "1";
 
 const astra = { provider: "openai", id: "gpt-6-astra", contextWindow: 4000 };
 const sol = { provider: "openai", id: "gpt-6.1-sol", contextWindow: 4000 };
+const astra62 = { ...astra, id: "gpt-6.2-astra" };
+const sol62 = { ...sol, id: "gpt-6.2-sol" };
 const ref = (model) => model ? `${model.provider}/${model.id}` : undefined;
 const details = (results) => ({ includeLocationalAgents: false, locationalAgents: [], results });
 const definition = (root, model) => ({ id: "speed-test", kind: "behavioral", origin: "user", rootDir: root, filePath: join(root, "SUBAGENTS.md"), model, manifest: true, description: "", systemPrompt: "", resumable: false });
@@ -55,6 +57,16 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
 test("Ultrafast requested snapshots final child env and child model/auth, never parent FAST", async () => {
 	await withChild(async (root, calls) => {
 		const cases = [
+			...[astra62, sol62].flatMap((child) => [
+				{ speed: "ultrafast", fast: "0", child, expected: "ultrafast" },
+				{ speed: "ULTRAFAST", fast: "1", child, expected: "ultrafast" },
+				{ speed: "ultrafast", child, oauth: false },
+				{ speed: "ultrafast", child, missingAuthCheck: true },
+				{ speed: "ultrafast", child: { ...child, provider: "openai-work" } },
+				{ speed: "ultrafast", child: { ...child, provider: "OPENAI" } },
+				{ speed: "ultrafast", child: { ...child, id: child.id.toUpperCase() } },
+				{ speed: "ultrafast", child: { ...child, id: `${child.id}-extra` } },
+			]),
 			{ speed: "ultrafast", fast: "0", child: astra, expected: "ultrafast" },
 			{ speed: "ULTRAFAST", fast: "1", child: astra, expected: "ultrafast" },
 			{ speed: "ultrafast", child: { ...astra, provider: "OPENAI" } },
@@ -117,7 +129,7 @@ test("Ultrafast requested snapshots final child env and child model/auth, never 
 		process.env.PI_CHATGPT_SPEED = "ultrafast";
 		process.env.PI_CHATGPT_FAST = "0";
 		const sameCaller = definition(root);
-		for (const model of [astra, sol]) {
+		for (const model of [astra, sol, astra62, sol62]) {
 			const same = await runDelegation({ appendEntry() {} }, context(root, model, []), root, [sameCaller], sameCaller.id, "new", "work", undefined, undefined, details, false);
 			assert.equal(same.requestedSpeed, "ultrafast");
 		}
@@ -164,6 +176,8 @@ test("Ultrafast intent is recomputed for each actual locational retry launch", a
 		for (const [selected, parent, changeEnv, expected] of [
 			[sol, astra, false, ["ultrafast", "ultrafast"]],
 			[astra, sol, false, ["ultrafast", "ultrafast"]],
+			[astra62, sol62, false, ["ultrafast", "ultrafast"]],
+			[sol62, astra62, false, ["ultrafast", "ultrafast"]],
 			[{ ...sol, id: "gpt-6-luna" }, sol, false, [undefined, "ultrafast"]],
 			[sol, { ...sol, id: "gpt-6-luna" }, false, ["ultrafast", undefined]],
 			[sol, astra, true, ["ultrafast", undefined]],
