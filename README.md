@@ -78,6 +78,10 @@ Run `/reload` or restart Pi after editing project settings. `/steel status` list
 
 An unrelated replacement can be added separately through Pi's normal resource settings. Existing bundled-name/source and duplicate-path collision checks still apply; this is exclusion support, not permission to load standalone copies of bundled modules. Disabling doc manifests does not delete project-owned creator skills or prior conversation text.
 
+### Session export
+
+With `Everything` or a custom loadout containing [`pi-export`](extensions/pi-export/README.md), ask the agent to export the session as HTML (all saved branches) or JSONL (current branch). It returns a fresh local file path without uploading anything. Exports are unredacted; review them before sharing.
+
 ### Paseo
 
 `Everything` includes [pi-paseo](extensions/pi-paseo/README.md): automatic terminal activity and waiting-for-input reporting inside Paseo, without duplicating its native Pi chat integration. Outside Paseo and in orchestrated children, reporting is inactive.

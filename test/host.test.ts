@@ -356,6 +356,7 @@ async function checkState(session: AgentSession, loader: DefaultResourceLoader, 
     assert.equal(themes.includes(name), enabled, `${name} theme`);
     assert.equal(!!session.extensionRunner.getCommand(`${name}-fixture`), enabled, `${name} extension`);
   }
+  assert.equal(session.getActiveToolNames().includes("export_session"), entries.includes("extensions/pi-export/index.ts"));
   assert.equal(session.getActiveToolNames().includes("subagent"), agents);
   if (agents) assert.equal(session.extensionRunner.getToolDefinition("subagent")?.exposure, "model-only");
   const before = await session.extensionRunner.emitBeforeAgentStart({ messageType: "user", prompt: "Inspect resource availability", images: undefined }, { cwd: session.extensionRunner.createContext().cwd, selectedTools: session.getActiveToolNames() });

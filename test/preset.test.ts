@@ -108,7 +108,7 @@ test("legacy memory preset keeps its selection and follows upstream's default br
   const config = parseConfig(preset, manifest.extensions);
   assert.equal(config.active, "memory");
   assert.deepEqual(config.managed, []);
-  assert.deepEqual(select(config, manifest.extensions).bundled, manifest.extensions.filter((member: { id: string }) => member.id !== "pi-paseo").map((member: { id: string }) => member.id));
+  assert.deepEqual(select(config, manifest.extensions).bundled, manifest.extensions.filter((member: { revision: string }) => member.revision !== "native").map((member: { id: string }) => member.id));
   const source = "git:https://github.com/elpapi42/pi-observational-memory.git";
   assert.deepEqual(select(config, manifest.extensions).external, [source]);
   const pkg = JSON.parse(readFileSync(join(sourceRoot, "package.json"), "utf8"));
