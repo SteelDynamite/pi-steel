@@ -18,9 +18,9 @@ pi -e ./index.ts
 
 ## Usage
 
-**Codync exception:** When `CODYNC_PI_MCP_SERVERS` is nonblank at initialization (including `"{}"`), `pi-todo` registers neither the tool nor its lifecycle hooks. It does not show a widget, restore a title, send pending-order reminders, or modify saved todos or loadout settings. Reloading or resuming the same branch outside Codync makes its saved list available again. The locational-guard opt-in belongs to `pi-subagent` and does not enable `pi-todo`.
+**Codync and OpenMausBot exception:** When `CODYNC_PI_MCP_SERVERS` (Codync, including `"{}"`) or `OMB_MCP_CONFIG` (OpenMausBot) is nonblank at initialization, `pi-todo` registers neither the tool nor its lifecycle hooks. It does not show a widget, restore a title, send pending-order reminders, or modify saved todos or loadout settings. Reloading or resuming the same branch outside these bot hosts makes its saved list available again. The locational-guard opt-in belongs to `pi-subagent` and does not enable `pi-todo`.
 
-Outside detected Codync sessions, the extension adds a branch-aware `todo` tool for the agent:
+Outside these bot sessions, the extension adds a branch-aware `todo` tool for the agent:
 
 - `list`
 - `add` with `items: string[]`, optional `replace: boolean`, and optional `title: string`

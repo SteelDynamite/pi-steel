@@ -84,9 +84,9 @@ An unrelated replacement can be added separately through Pi's normal resource se
 
 Paseo control tools default **off**. Use `/paseo` or `/paseo tools on|off`; the global setting lives in `<agent-dir>/paseo.json`. This controls only `pi-paseo`'s own tool, leaving Paseo-injected tools untouched. Controls use the existing Paseo CLI and require one unambiguous inherited `PASEO_HOME` or `PASEO_HOST`; the extension does not read credentials or edit Paseo settings. See the module README for commands, notification limits, and validation boundaries.
 
-### Codync
+### Codync and OpenMausBot
 
-In detected Codync sessions, `pi-chatgpt` enforces Ultrafast, `pi-subagent` suppresses native delegation, and `pi-todo` disables its tool and reminders without clearing saved lists. Each policy applies only when its extension is selected; none changes shared loadout settings. Explicit locational guards (`PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS=1`) retain native delegation with one parent-runtime warning, but do not reenable `pi-todo`. Detection uses Codync's internal Pi bridge environment variable, not generic RPC mode. See [speed](extensions/pi-chatgpt/README.md#codync-sessions), [delegation](extensions/pi-subagent/README.md#codync-suppression), and [todo](extensions/pi-todo/README.md#usage) policies.
+In detected Codync and OpenMausBot sessions, `pi-chatgpt` enforces Ultrafast, `pi-subagent` suppresses native delegation, and `pi-todo` disables its tool and reminders without clearing saved lists. Each policy applies only when its extension is selected; none changes shared loadout settings. Explicit locational guards (`PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS=1`) retain native delegation with one parent-runtime warning, but do not reenable `pi-todo`. Detection requires a nonblank `CODYNC_PI_MCP_SERVERS` (Codync) or `OMB_MCP_CONFIG` (OpenMausBot), not generic RPC mode. See [speed](extensions/pi-chatgpt/README.md#codync-and-openmausbot-sessions), [delegation](extensions/pi-subagent/README.md#codync-and-openmausbot-suppression), and [todo](extensions/pi-todo/README.md#usage) policies.
 
 ### Herdr (`hc`)
 

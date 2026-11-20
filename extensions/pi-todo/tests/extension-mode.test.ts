@@ -170,15 +170,12 @@ describe("tool safety", () => {
 	});
 });
 
-describe("Codync registration", () => {
-	it("skips all hooks and tools only for a nonblank bridge marker", (t) => {
-		const key = "CODYNC_PI_MCP_SERVERS";
+describe("bot host registration", () => {
+	for (const [key, value] of [["CODYNC_PI_MCP_SERVERS", "{}"], ["OMB_MCP_CONFIG", "/unused/mcp.json"]] as const) it(`skips all hooks and tools only for nonblank ${key}`, (t) => {
 		const original = process.env[key];
 		t.after(() => { if (original === undefined) delete process.env[key]; else process.env[key] = original; });
-		for (const marker of ["{}", '{"memory":{}}']) {
-			process.env[key] = marker;
-			createExtension(new Proxy({} as never, { get: (_api, name) => assert.fail(`Unexpected Pi API access: ${String(name)}`) }));
-		}
+		process.env[key] = value;
+		createExtension(new Proxy({} as never, { get: (_api, name) => assert.fail(`Unexpected Pi API access: ${String(name)}`) }));
 		for (const marker of [undefined, "", " \t"]) {
 			if (marker === undefined) delete process.env[key]; else process.env[key] = marker;
 			createHarness("rpc"); // Asserts the native tool was registered.

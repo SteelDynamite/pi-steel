@@ -988,9 +988,12 @@ export default function (pi) {
   let speedMode = STANDARD_MODE
   const inheritedFastEnv = process.env[FAST_ENV]
   const inheritedSpeedEnv = process.env[SPEED_ENV]
-  // Codync's Pi bridge sets this even with no MCP servers ("{}"). RPC alone
-  // also covers other clients and must not opt them into this policy.
-  const isCodyncSession = Boolean(process.env.CODYNC_PI_MCP_SERVERS?.trim())
+  // Only these launchers enforce speed; ordinary RPC clients keep their preferences.
+  const botHost = process.env.CODYNC_PI_MCP_SERVERS?.trim()
+    ? "Codync"
+    : process.env.OMB_MCP_CONFIG?.trim()
+      ? "OpenMausBot"
+      : undefined
   let ownedFastEnvValue
   let ownedSpeedEnvValue
 
@@ -1108,7 +1111,7 @@ export default function (pi) {
     if (!active || owner !== generation) return
     const inheritedSpeedMode = parseSpeedEnv(inheritedSpeedEnv)
     const inheritedFastEnabled = parseFastEnv(inheritedFastEnv)
-    speedMode = isCodyncSession
+    speedMode = botHost
       ? ULTRAFAST_MODE
       : (inheritedSpeedMode ??
         (inheritedFastEnabled === undefined
@@ -1183,7 +1186,7 @@ export default function (pi) {
                 ? "active"
                 : `selected; unsupported by ${modelName}`
         ctx.ui.notify(
-          `ChatGPT speed: ${label} (${state}).${isCodyncSession ? " Enforced for Codync; saved speed settings are unchanged." : ""}`,
+          `ChatGPT speed: ${label} (${state}).${botHost ? ` Enforced for ${botHost}; saved speed settings are unchanged.` : ""}`,
           state === "active" ? "info" : "warning",
         )
         return
@@ -1208,9 +1211,9 @@ export default function (pi) {
         return
       }
 
-      if (isCodyncSession) {
+      if (botHost) {
         ctx.ui.notify(
-          "Ultrafast is enforced for Codync sessions; saved speed settings are unchanged.",
+          `Ultrafast is enforced for ${botHost} sessions; saved speed settings are unchanged.`,
           selectedSpeedMode === ULTRAFAST_MODE ? "info" : "warning",
         )
         return

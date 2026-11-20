@@ -15,7 +15,7 @@ const root = resolve(process.env.STEEL_TEST_PACKAGE_ROOT ?? sourceRoot);
 const run = promisify(execFile);
 
 if (!process.env.STEEL_HERDR_CASE) {
-  test("Orchestrators: Codync suppression and Herdr handoff preserve guards, reloads, and shared loadouts", { timeout: 210_000, skip: process.platform === "win32" }, async () => {
+  test("Orchestrators: Codync/OpenMausBot suppression and Herdr handoff preserve guards, reloads, and shared loadouts", { timeout: 210_000, skip: process.platform === "win32" }, async () => {
     const home = mkdtempSync(join(tmpdir(), "steel-herdr-"));
     try {
       const agentDir = join(home, "agent");
@@ -43,7 +43,7 @@ else console.log('# hc manual (herdr-core)\\n' + process.env.STEEL_HERDR_MANUAL)
       const settingsBefore = readFileSync(settingsPath, "utf8");
       const configBefore = readFileSync(configPath, "utf8");
       // Keep cross-runtime interference coverage without starting six Pi runtimes at once.
-      for (const variants of [["native", "herdr"], ["fallback", "timeout"], ["child", "child-fallback"], ["codync", "codync-guards"]]) {
+      for (const variants of [["native", "herdr"], ["fallback", "timeout"], ["child", "child-fallback"], ["codync", "codync-guards"], ["openmausbot", "openmausbot-guards"]]) {
         await Promise.all(variants.map(async variant => {
           const cwd = join(home, variant);
           mkdirSync(cwd);
@@ -58,7 +58,8 @@ else console.log('# hc manual (herdr-core)\\n' + process.env.STEEL_HERDR_MANUAL)
               ...(variant !== "native" ? { HC_TERMINAL_ID: `t-${variant}` } : {}),
               ...(variant.startsWith("child") ? { PI_ORCHESTRATED_CHILD: "1" } : {}),
               ...(variant.startsWith("codync") ? { CODYNC_PI_MCP_SERVERS: "{}" } : {}),
-              ...(variant === "codync-guards" ? { PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS: "1" } : {}),
+              ...(variant.startsWith("openmausbot") ? { OMB_MCP_CONFIG: join(cwd, "mcp.json") } : {}),
+              ...(variant.endsWith("-guards") ? { PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS: "1" } : {}),
               ...(["fallback", "timeout", "child-fallback"].includes(variant) ? { STEEL_HERDR_FAILURE: variant } : {}),
             },
           });
@@ -148,18 +149,21 @@ else console.log('# hc manual (herdr-core)\\n' + process.env.STEEL_HERDR_MANUAL)
       assert(!JSON.stringify(session.sessionManager.getEntries()).includes("## Diagnostics"));
     };
     const handedOff = variant === "herdr" || variant === "child";
-    const native = !handedOff && variant !== "codync";
-    const todo = !variant.startsWith("codync");
+    const botHost = variant.startsWith("codync") ? "Codync" : variant.startsWith("openmausbot") ? "OpenMausBot" : undefined;
+    const native = !handedOff && (!botHost || variant.endsWith("-guards"));
+    const todo = !botHost;
     await check(handedOff, native, todo);
     await check(handedOff, native, todo);
-    assert.equal(notices.filter(message => /keeping native subagents/i.test(message)).length, ["fallback", "timeout", "codync-guards"].includes(variant) ? 1 : 0);
-    if (variant.startsWith("codync")) {
-      assert(!existsSync(process.env.STEEL_HERDR_PROBES!), "Codync never probes hc, including with guards enabled");
-      assert.equal(process.env.PI_CHATGPT_SPEED, "ultrafast", "Codync speed policy coexists with delegation suppression");
+    assert.equal(notices.filter(message => /keeping native subagents/i.test(message)).length, ["fallback", "timeout"].includes(variant) || variant.endsWith("-guards") ? 1 : 0);
+    if (botHost) {
+      if (native) assert(notices.some(message => message.startsWith(`${botHost} detected; keeping native subagents`)));
+      assert(!existsSync(process.env.STEEL_HERDR_PROBES!), `${botHost} never probes hc, including with guards enabled`);
+      assert.equal(process.env.PI_CHATGPT_SPEED, "ultrafast");
       await session.reload();
       await check(false, native, false);
       assert(!existsSync(process.env.STEEL_HERDR_PROBES!));
       delete process.env.CODYNC_PI_MCP_SERVERS;
+      delete process.env.OMB_MCP_CONFIG;
       delete process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS;
       await session.reload();
       await check(true, false);

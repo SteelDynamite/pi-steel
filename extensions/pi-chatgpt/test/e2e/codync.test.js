@@ -7,7 +7,7 @@ import extension from "../../extensions/chatgpt.js"
 
 async function fixture(
   t,
-  { marker, speed = "standard", saved = "standard" } = {},
+  { marker, ombConfig, speed = "standard", saved = "standard" } = {},
 ) {
   const originalEnv = { ...process.env }
   const directory = await mkdtemp(join(tmpdir(), "pi-chatgpt-codync-"))
@@ -18,6 +18,8 @@ async function fixture(
   process.env.PI_ACP_PI_COMMAND = "pi"
   delete process.env.CODYNC_PI_MCP_SERVERS
   if (marker !== undefined) process.env.CODYNC_PI_MCP_SERVERS = marker
+  delete process.env.OMB_MCP_CONFIG
+  if (ombConfig !== undefined) process.env.OMB_MCP_CONFIG = ombConfig
   const configPath = join(directory, "chatgpt.json")
   const config = `${JSON.stringify({
     quotaWindow: "hidden",
@@ -145,10 +147,36 @@ test("Codync preserves model and OAuth guards through model changes and session 
   }
 })
 
-test("ordinary RPC clients and unrelated Codync variables do not force speed", async (t) => {
+test("OpenMausBot locks Ultrafast without changing the saved speed", async (t) => {
+  const { handlers, commands, notices, ctx, configPath, config } =
+    await fixture(t, { ombConfig: "/unused/mcp.json", saved: "fast" })
+  const payload = { model: ctx.model.id }
+  assert.deepEqual(handlers.get("before_provider_request")({ payload }, ctx), {
+    ...payload,
+    service_tier: "ultrafast",
+  })
+  await commands.get("fast").handler("off", ctx)
+  assert.match(notices.at(-1).message, /Ultrafast is enforced for OpenMausBot/)
+  await commands.get("fast").handler("status", ctx)
+  assert.match(
+    notices.at(-1).message,
+    /Ultrafast \(active\).*Enforced for OpenMausBot/,
+  )
+  ctx.modelRegistry.isUsingOAuth = () => false
+  assert.equal(
+    handlers.get("before_provider_request")({ payload }, ctx),
+    undefined,
+  )
+  assert.equal(await readFile(configPath, "utf8"), config)
+})
+
+test("ordinary RPC clients and blank bot markers do not force speed", async (t) => {
   for (const marker of [undefined, "", " \t\n"]) {
     await t.test(`marker ${JSON.stringify(marker)}`, async (t) => {
-      const { commands, notices, ctx } = await fixture(t, { marker })
+      const { commands, notices, ctx } = await fixture(t, {
+        marker,
+        ombConfig: marker,
+      })
       assert.equal(process.env.PI_CHATGPT_SPEED, "standard")
       await commands.get("fast").handler("temporary fast", ctx)
       assert.equal(process.env.PI_CHATGPT_SPEED, "fast")

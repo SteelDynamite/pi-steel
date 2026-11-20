@@ -6,7 +6,7 @@ import { beforeEach, test } from "node:test";
 import subagentExtension from "../index.ts";
 
 beforeEach(() => {
-	for (const key of ["HC_TERMINAL_ID", "HERDR_ENV", "PI_ORCHESTRATED_CHILD", "PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS", "CODYNC_PI_MCP_SERVERS", "CODYNC_HOME", "PI_ACP_PI_COMMAND"]) delete process.env[key];
+	for (const key of ["HC_TERMINAL_ID", "HERDR_ENV", "PI_ORCHESTRATED_CHILD", "PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS", "CODYNC_PI_MCP_SERVERS", "OMB_MCP_CONFIG", "CODYNC_HOME", "PI_ACP_PI_COMMAND"]) delete process.env[key];
 });
 
 async function register(result = { code: 0, stdout: "# hc manual (herdr-core)", stderr: "" }) {
@@ -124,8 +124,11 @@ for (const mode of ["child", "print"]) test(`fallback stays quiet for ${mode}`, 
 	assert.deepEqual(result.notices, []);
 });
 
-for (const marker of [undefined, "", " \t\n"]) test(`absent Codync marker retains ordinary RPC delegation: ${JSON.stringify(marker)}`, async () => {
-	if (marker !== undefined) process.env.CODYNC_PI_MCP_SERVERS = marker;
+for (const marker of [undefined, "", " \t\n"]) test(`blank or absent bot markers retain ordinary RPC delegation: ${JSON.stringify(marker)}`, async () => {
+	if (marker !== undefined) {
+		process.env.CODYNC_PI_MCP_SERVERS = marker;
+		process.env.OMB_MCP_CONFIG = marker;
+	}
 	process.env.CODYNC_HOME = "/unused";
 	process.env.PI_ACP_PI_COMMAND = "pi";
 	const result = await register();

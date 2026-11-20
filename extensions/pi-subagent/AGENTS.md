@@ -4,9 +4,9 @@ Read `README.md` for product behavior, installation, and validation commands. Th
 
 Keep native delegation foreground-managed: each `subagent` call launches one isolated Pi child, shows progress, waits, and returns one result. Built-in `bash` owns shell commands and Pi owns concurrent sibling tool execution. Do not bundle or export slash-command prompt templates; behavioral definitions and internal delegation prompts remain part of the extension. Do not add detached jobs, background polling, or general command execution to this extension. Preserve `exposure: "model-only"` for direct tool rendering and progress.
 
-## Codync suppression
+## Codync and OpenMausBot suppression
 
-A nonblank `CODYNC_PI_MCP_SERVERS` suppresses all registration before Herdr detection, unless `PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS=1` explicitly enables guards. The exception retains native delegation and warns once per TUI/RPC parent runtime; orchestrated children stay quiet. Do not probe hc, inject delegation guidance, mutate global filters, or infer Codync from RPC mode alone. Keep detection aligned with `pi-chatgpt`; the bridge variable is an internal upstream signal, not a stable API.
+A nonblank `CODYNC_PI_MCP_SERVERS` or `OMB_MCP_CONFIG` suppresses all registration before Herdr detection, unless `PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS=1` explicitly enables guards. The exception retains native delegation and warns once per TUI/RPC parent runtime; orchestrated children stay quiet. Do not probe hc, inject delegation guidance, mutate global filters, or infer either host from RPC mode alone. Keep detection aligned with `pi-chatgpt` and `pi-todo`; use only the nonblank launch markers, never their contents or the referenced file.
 
 ## Herdr handoff
 

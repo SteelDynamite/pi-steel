@@ -193,8 +193,8 @@ class TodoWidget {
 }
 
 export default function (pi: ExtensionAPI) {
-	// Codync's Pi bridge sets this even with no servers ("{}"); RPC alone is not Codync.
-	if (process.env.CODYNC_PI_MCP_SERVERS?.trim()) return;
+	// Skip registration in these bot hosts, not in generic RPC clients.
+	if (process.env.CODYNC_PI_MCP_SERVERS?.trim() || process.env.OMB_MCP_CONFIG?.trim()) return;
 
 	let model: TodoModel = createTodoModel();
 	let currentTurn = 0;
