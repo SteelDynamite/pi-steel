@@ -146,6 +146,14 @@ async function exerciseHost(): Promise<void> {
     reloads = 0;
     const members = JSON.parse(readFileSync(join(root, "extensions.manifest.json"), "utf8")).extensions as { id: string; entry: string }[];
     assert(members.some(member => member.id === "pi-paseo" && member.entry === "extensions/pi-paseo/index.ts"));
+    process.env.OMB_MCP_CONFIG = "fixture-marker";
+    try {
+      await session.reload();
+      assert(session.getActiveToolNames().includes("export_session"), "MausBot launcher enables exports");
+    } finally {
+      delete process.env.OMB_MCP_CONFIG;
+      await session.reload();
+    }
     await checkState(session, loader, members.map(member => member.entry), true, true, false, errors);
     assert.deepEqual(loader.getAgentsFiles().agentsFiles.filter(file => file.path === join(cwd, "AGENTS.md")).map(file => file.content), [readFileSync(join(sourceRoot, "AGENTS.md"), "utf8")]);
     const freshEntries = session.sessionManager.getEntries();
@@ -356,7 +364,7 @@ async function checkState(session: AgentSession, loader: DefaultResourceLoader, 
     assert.equal(themes.includes(name), enabled, `${name} theme`);
     assert.equal(!!session.extensionRunner.getCommand(`${name}-fixture`), enabled, `${name} extension`);
   }
-  assert.equal(session.getActiveToolNames().includes("export_session"), entries.includes("extensions/pi-export/index.ts"));
+  assert(!session.getActiveToolNames().includes("export_session"), "plain Pi RPC must not expose the MausBot export tool");
   assert.equal(session.getActiveToolNames().includes("subagent"), agents);
   if (agents) assert.equal(session.extensionRunner.getToolDefinition("subagent")?.exposure, "model-only");
   const before = await session.extensionRunner.emitBeforeAgentStart({ messageType: "user", prompt: "Inspect resource availability", images: undefined }, { cwd: session.extensionRunner.createContext().cwd, selectedTools: session.getActiveToolNames() });

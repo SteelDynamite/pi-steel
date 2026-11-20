@@ -80,7 +80,7 @@ An unrelated replacement can be added separately through Pi's normal resource se
 
 ### Session export
 
-With `Everything` or a custom loadout containing [`pi-export`](extensions/pi-export/README.md), ask the agent to export the session as HTML (all saved branches) or JSONL (current branch). It returns a fresh local file path without uploading anything. Exports are unredacted; review them before sharing.
+In OpenMausBot with [`pi-export`](extensions/pi-export/README.md) selected, ask “Export this chat.” The tool creates a ZIP containing Pi's HTML viewer with all branches, including in-memory sessions, and tries to attach it to the current chat. Ask for JSONL to export only the current branch. If attachment fails, the tool reports why and keeps the ZIP. Exports are unredacted; review them before sharing elsewhere. Outside OpenMausBot, the tool is not registered; Pi's `/export` command is unchanged.
 
 ### Paseo
 
