@@ -16,10 +16,11 @@ export function restoreNote(entries: readonly SessionEntry[]) {
 
 export function registerNotes(pi: ExtensionAPI) {
 	let panel: NotePanel | undefined;
-	let armed = false;
 	let blocked = false;
-	const mount = (ctx: ExtensionContext) => {
-		if (panel) return panel;
+	const reset = () => { panel?.dispose(); panel = undefined; blocked = false; };
+	const restore = (ctx: ExtensionContext) => {
+		reset();
+		if (!eligible(ctx)) return;
 		const saved = restoreNote(ctx.sessionManager.getBranch());
 		ctx.ui.setWidget(KEY, (tui, theme) => {
 			const next = new NotePanel(tui, theme, saved, text => {
@@ -28,30 +29,15 @@ export function registerNotes(pi: ExtensionAPI) {
 			});
 			return panel = next;
 		});
-		return panel;
 	};
-	const reset = () => { panel?.dispose(); panel = undefined; armed = blocked = false; };
-	const restore = (ctx: ExtensionContext) => {
-		reset();
-		if (!eligible(ctx)) return;
-		if (restoreNote(ctx.sessionManager.getBranch())) mount(ctx); else ctx.ui.setWidget(KEY, undefined);
-	};
+	const edit = (ctx: ExtensionContext) => { if (eligible(ctx) && !blocked) panel?.edit(); };
 	pi.on("session_start", (_e, ctx) => restore(ctx));
 	pi.on("session_tree", (_e, ctx) => restore(ctx));
 	pi.on("session_shutdown", reset);
-	// Tool turns, retries, and queued continuations are not the end of the user's run.
-	pi.on("agent_settled", () => panel?.dismissIfUntouched());
 	pi.on("ui_prompt_start", () => { blocked = true; panel?.close(); });
 	pi.on("ui_prompt_end", () => { blocked = false; });
 	pi.on("model_select", () => panel?.close());
-	pi.registerCommand("note", { description: "Edit your pinned return note (terminal only)", handler: async (_args, ctx) => {
-		if (eligible(ctx) && !blocked) mount(ctx)?.edit();
-	} });
-	pi.on("input", (event, ctx) => { armed = eligible(ctx) && event.source === "interactive"; });
-	pi.on("message_start", (event, ctx) => {
-		if (!armed || event.message.role !== "user") return;
-		armed = false;
-		if (blocked || !eligible(ctx) || ctx.ui.getEditorText().trim()) return;
-		mount(ctx)?.choose();
-	});
+	const description = "Edit your pinned return note (terminal only)";
+	if (process.env.PI_ORCHESTRATED_CHILD !== "1") pi.registerShortcut("alt+n", { description, handler: edit });
+	pi.registerCommand("note", { description, handler: async (_args, ctx) => edit(ctx) });
 }

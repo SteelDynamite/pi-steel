@@ -10,10 +10,8 @@ export class NotePanel implements Component {
 	private theme: Theme;
 	private pin: (text: string) => void;
 	private previous: Component | null = null;
-	private mode: "pinned" | "choose" | "edit" = "pinned";
+	private mode: "pinned" | "edit" = "pinned";
 	private input = new Input();
-	private useLast = false;
-	private navigated = false;
 	private hasFocus = false;
 	saved: string;
 
@@ -39,21 +37,13 @@ export class NotePanel implements Component {
 		this.tui.setFocus(this);
 		return this.tui.getFocusedComponent?.() === this;
 	}
-	choose() {
+	edit() {
 		if (this.mode !== "pinned" || !this.takeFocus()) return;
-		this.mode = "choose"; this.navigated = false; this.useLast = Boolean(this.saved);
-		this.tui.requestRender();
-	}
-	edit(text = this.saved) {
-		if (!this.takeFocus()) return;
 		this.mode = "edit"; this.pasting = false; this.input = new Input(); this.input.focused = this.focused;
-		this.input.setValue(text); this.input.handleInput("\x05"); // End of prefill.
+		this.input.setValue(this.saved); this.input.handleInput("\x05"); // End of prefill.
 		this.input.onEscape = () => this.close();
 		this.input.onSubmit = value => { this.pin(oneLine(value).trim()); this.close(); };
 		this.tui.requestRender();
-	}
-	dismissIfUntouched() {
-		if (this.mode === "choose" && !this.navigated) this.close();
 	}
 	close() {
 		this.mode = "pinned";
@@ -81,25 +71,17 @@ export class NotePanel implements Component {
 			if (this.pasting) {
 				this.pasting = !data.includes("\x1b[201~");
 				data = data.split(/(\x1b\[20[01]~)/).map(part => /^\x1b\[20[01]~$/.test(part) ? part : oneLine(part)).join("");
-			}
-			this.input.handleInput(data);
-		} else if (this.mode === "choose") {
-			if (matchesKey(data, "escape")) this.close();
-			else if (matchesKey(data, "enter")) this.edit(this.useLast ? this.saved : "");
-			else if (matchesKey(data, "up") || matchesKey(data, "down")) {
-				this.navigated = true;
-				if (this.saved) this.useLast = !this.useLast;
-			}
+				this.input.handleInput(data);
+			} else if (matchesKey(data, "ctrl+c")) {
+				this.input.setValue("");
+			} else this.input.handleInput(data);
 		}
 		this.tui.requestRender();
 	}
 	private pasting = false;
 	render(width: number) {
 		const line = (s: string) => truncateToWidth(s, width);
-		if (this.mode === "pinned") return this.saved ? [line(this.theme.fg("accent", "Note: ") + this.saved)] : [];
-		if (this.mode === "edit") return [line(this.theme.fg("accent", "Edit note · Enter pins · Esc cancels")), ...this.input.render(width).map(line)];
-		return [line(this.theme.fg("accent", "Return note · ↑↓ choose · Enter edits · Esc keeps")),
-			...(this.saved ? [line(`${this.useLast ? "›" : " "} Last note: ${this.saved}`)] : []),
-			line(`${this.useLast ? " " : "›"} Write a new note…`)];
+		if (this.mode === "pinned") return [line(this.theme.fg("accent", "Note: ") + (this.saved || "—") + this.theme.fg("dim", "  Alt+N to edit"))];
+		return [line(this.theme.fg("accent", "Edit note · Enter pins · Ctrl+C clears · Esc cancels")), ...this.input.render(width).map(line)];
 	}
 }

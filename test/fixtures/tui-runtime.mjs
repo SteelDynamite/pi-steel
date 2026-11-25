@@ -10,6 +10,7 @@ const active = () => {
 };
 
 export default function (pi) {
+  pi.on("input", event => { record({ event: "input", text: event.text }); });
   pi.on("session_start", (_event, ctx) => {
     record({ event: "start", active: active(), mode: ctx.mode });
     // Reproduce another component handing keyboard focus to the normal editor

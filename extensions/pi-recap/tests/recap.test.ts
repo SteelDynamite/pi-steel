@@ -67,6 +67,7 @@ function harness(entries: any[], extension = createRecapExtension()) {
 		on(name: string, handler: (event: any, ctx: any) => any) {
 			handlers.set(name, handler);
 		},
+		registerShortcut() {},
 		registerCommand(name: string, definition: any) {
 			if (name === "recap") command = definition.handler;
 		},
@@ -180,11 +181,13 @@ test("only nonblank OpenMausBot markers disable all note registrations", () => {
 	try {
 		for (const marker of [undefined, " ", "{}", "config"]) {
 			if (marker === undefined) delete process.env.OMB_MCP_CONFIG; else process.env.OMB_MCP_CONFIG = marker;
-			const commands: string[] = [], hooks: string[] = [];
-			createRecapExtension()({ registerCommand: (n: string) => commands.push(n), on: (n: string) => hooks.push(n), registerEntryRenderer() {} } as any);
+			const commands: string[] = [], hooks: string[] = [], shortcuts: string[] = [];
+			createRecapExtension()({ registerCommand: (n: string) => commands.push(n), registerShortcut: (n: string) => shortcuts.push(n),
+				on: (n: string) => hooks.push(n), registerEntryRenderer() {} } as any);
 			assert.equal(commands.includes("note"), !marker?.trim());
-			assert.equal(hooks.includes("message_start"), !marker?.trim());
-			assert.equal(hooks.includes("agent_settled"), !marker?.trim());
+			assert.equal(shortcuts.includes("alt+n"), !marker?.trim());
+			assert.equal(hooks.includes("session_start"), !marker?.trim());
+			assert.equal(hooks.includes("agent_settled"), false);
 			assert.ok(commands.includes("recap"));
 		}
 	} finally { if (prior === undefined) delete process.env.OMB_MCP_CONFIG; else process.env.OMB_MCP_CONFIG = prior; }
