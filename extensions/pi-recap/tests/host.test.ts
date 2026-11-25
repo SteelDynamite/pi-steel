@@ -216,10 +216,10 @@ if (process.env.RECAP_HOST_CHILD !== "1") {
 	let theme = getThemeByName("dark");
 	loaded.runtime.getThinkingLevel = () => "high";
 	ctx.ui.setWidget = (_key: string, factory?: Function) => { view = factory?.(tui, theme); };
-	const rows = (width: number, token = "thinkingHigh") => view.render(width).map((row: string) => {
-		const bg = theme.style("X", { bg: theme.colors[token] }).split("X")[0];
-		assert.ok(row.includes(bg) && row.includes("\x1b[49m"), "use and reset the prompt outline as background");
-		assert.equal(visibleWidth(row), width);
+	const rows = (width: number) => view.render(width).map((row: string) => {
+		assert.ok(row.startsWith("\x1b[94m") && row.endsWith("\x1b[39m"), "scope blue text to the note row");
+		assert.doesNotMatch(row, /\x1b\[(?:4[0-9]|10[0-7])(?:m|;)/, "leave the terminal background alone");
+		assert.ok(visibleWidth(row) <= width);
 		return stripTerminalSequences(row).trimEnd();
 	});
 	const sendEvent = async (name: string, payload: any) => { for (const fn of extension.handlers.get(name) ?? []) await fn(payload, ctx); };
@@ -229,7 +229,7 @@ if (process.env.RECAP_HOST_CHILD !== "1") {
 	};
 	const shortcut = () => extension.shortcuts.get("alt+n").handler(ctx);
 	await emit("session_start"); assert.equal(focus, editor); assert.deepEqual(rows(120), ["Note: —  Alt+N to edit"]);
-	ctx.ui.getEditorText = () => " !pwd"; rows(120, "bashMode"); ctx.ui.getEditorText = () => "";
+	ctx.ui.getEditorText = () => " !pwd"; rows(120); ctx.ui.getEditorText = () => "";
 	theme = getThemeByName("light"); await emit("session_start"); rows(120);
 	await shortcut(); assert.equal(rows(120).length, 2); view.handleInput("PRIVATE_PIN"); view.handleInput("\r");
 	assert.equal(focus, editor); assert.doesNotMatch(JSON.stringify(manager.buildSessionContext()), /PRIVATE_PIN/);

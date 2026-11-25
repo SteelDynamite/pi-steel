@@ -23,13 +23,8 @@ export function registerNotes(pi: ExtensionAPI) {
 		reset();
 		if (!eligible(ctx)) return;
 		const saved = restoreNote(ctx.sessionManager.getBranch());
-		ctx.ui.setWidget(KEY, (tui, theme) => {
-			const outline = () => {
-				if (ctx.ui.getEditorText().trimStart().startsWith("!")) return "bashMode";
-				const level = pi.getThinkingLevel() || "off";
-				return `thinking${level[0].toUpperCase()}${level.slice(1)}`;
-			};
-			const next = new NotePanel(tui, theme, saved, outline, text => {
+		ctx.ui.setWidget(KEY, (tui) => {
+			const next = new NotePanel(tui, saved, text => {
 				if (panel !== next || text === next.saved) return;
 				pi.appendEntry(KEY, { version: 1, text }); next.saved = text;
 			});
