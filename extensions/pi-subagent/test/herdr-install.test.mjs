@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -64,6 +65,31 @@ for (const kind of ['file', 'symlink', 'dangling']) test(`a personal ${kind} sto
   else assert(lstatSync(name).isSymbolicLink());
   if (kind !== 'dangling') assert.equal(readFileSync(target, 'utf8'), 'my instructions');
   else assert(!existsSync(target));
+});
+
+test('updates only unchanged managed roles for this profile; never claims an edited or legacy copy', posix, t => {
+  const { dir, install, run, agentDir } = fixture(t);
+  assert.equal(install().status, 0);
+  const path = join(dir, 'steel-scout.md');
+  const current = readFileSync(path, 'utf8');
+  const marker = /^---\nsteel-managed: v1 (\w+) (\w+)\n/;
+  const legacy = current.replace(marker, '---\n');
+  const old = legacy.replace('Work only on the assigned task.', 'Previous bundled instructions.');
+  writeFileSync(path, old.replace('---\n', `---\nsteel-managed: v1 ${current.match(marker)[1]} ${createHash('sha256').update(old).digest('hex')}\n`));
+  assert.equal(install().status, 0); assert.equal(readFileSync(path, 'utf8'), current);
+  assert.notEqual(run('--agent-dir', `${agentDir}-other`).status, 0); assert.equal(readFileSync(path, 'utf8'), current);
+  writeFileSync(path, current + 'Personal edit'); assert.notEqual(install().status, 0);
+  assert.equal(readFileSync(path, 'utf8'), current + 'Personal edit');
+  writeFileSync(path, legacy); assert.equal(install().status, 0); assert.equal(readFileSync(path, 'utf8'), legacy);
+});
+
+test('a busy or interrupted writer is left alone', posix, t => {
+  const { dir, install } = fixture(t);
+  const recovery = join(dir, '.pi-steel-sync');
+  mkdirSync(recovery, { recursive: true });
+  writeFileSync(join(recovery, 'previous'), 'keep');
+  assert.notEqual(install().status, 0); assert.equal(readFileSync(join(recovery, 'previous'), 'utf8'), 'keep');
+  assert.deepEqual(readdirSync(dir), ['.pi-steel-sync']);
 });
 
 test('help and unsupported paths never create templates', posix, t => {

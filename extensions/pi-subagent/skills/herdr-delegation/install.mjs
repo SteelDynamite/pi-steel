@@ -1,5 +1,6 @@
-// Explicit POSIX hc template installer. Never imported by extension startup.
-import { constants, closeSync, fstatSync, linkSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { constants, closeSync, fstatSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { parse } from 'yaml';
@@ -30,38 +31,78 @@ function render(role, agentDir) {
   return `---\nname: steel-${role}\ndescription: ${description}\ncommand: ${cmd.join(' ')}\n---\n\n${parts[2].trim()}\n\nWork only on the assigned task. Do not start more agents. Report results or blockers to the parent terminal specified in the task.\n`;
 }
 
-function missingOrIdentical(path, text) {
+const digest = value => createHash('sha256').update(value).digest('hex');
+const stamp = /^---\nsteel-managed: v1 ([a-f0-9]{64}) ([a-f0-9]{64})\n/;
+
+function readTemplate(path) {
   let fd;
   try { fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
-  catch (error) { if (error.code === 'ENOENT') return true; throw error; }
+  catch (error) { if (error.code === 'ENOENT') return undefined; throw error; }
   try {
     const stat = fstatSync(fd);
-    if (stat.isFile() && stat.size === Buffer.byteLength(text) && readFileSync(fd, 'utf8') === text) return false;
+    if (stat.isFile() && stat.size <= 256 * 1024) return readFileSync(fd, 'utf8');
     throw new Error(`Refusing to overwrite ${path}. Move it aside yourself before reinstalling.`);
   } finally { closeSync(fd); }
 }
 
-function main(args) {
-  if (args.length === 1 && args[0] === '--help') return console.log(usage);
-  if (args.length !== 2 || args[0] !== '--agent-dir' || !isAbsolute(args[1])) throw new Error(usage);
-  if (process.platform === 'win32' || /['\x00-\x1f\x7f]/.test(args[1])) throw new Error('Requires a POSIX agent path without single quotes or control characters.');
-  const directory = join(homedir(), '.config', 'herdr-core', 'templates');
-  const templates = roles.map(role => ({ name: `steel-${role}.md`, text: render(role, args[1]) }));
-  mkdirSync(directory, { recursive: true, mode: 0o700 });
-  if (!lstatSync(directory).isDirectory()) throw new Error(`Not a real directory: ${directory}`);
-  // Preflight every name, then atomically publish complete files without replacing
-  // anything, even if someone creates a personal template after the preflight.
-  const pending = templates.filter(({ name, text }) => missingOrIdentical(join(directory, name), text));
-  if (!pending.length) return console.log(`Already installed in ${directory}; no changes.`);
-  const stage = mkdtempSync(join(directory, '.steel-'));
+export function syncTemplates(agentDir) {
+  if (process.platform === 'win32' || !isAbsolute(agentDir) || /['\x00-\x1f\x7f]/.test(agentDir)) throw new Error('Requires an absolute POSIX agent path without single quotes or control characters.');
+  const profile = digest(agentDir);
+  const templates = roles.map(role => {
+    const body = render(role, agentDir);
+    const text = body.replace('---\n', `---\nsteel-managed: v1 ${profile} ${digest(body)}\n`);
+    return { name: `steel-${role}.md`, body, text };
+  });
+  const config = process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
+  if (!isAbsolute(config)) throw new Error('XDG_CONFIG_HOME must be absolute.');
+  const directory = join(config, 'herdr-core', 'templates');
+  for (const dir of [config, join(config, 'herdr-core'), directory]) {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    if (!lstatSync(dir).isDirectory()) throw new Error(`Not a real directory: ${dir}`);
+  }
+  // One foreground writer; no retries or stale-lock stealing. A crash leaves any
+  // displaced original in the lock directory for recovery, not in a temp cleaner.
+  const stage = join(directory, '.pi-steel-sync');
+  mkdirSync(stage, { mode: 0o700 });
   try {
-    for (const { name, text } of pending) writeFileSync(join(stage, name), text, { mode: 0o600 });
-    for (const { name } of pending) {
-      linkSync(join(stage, name), join(directory, name));
-      console.log(`Installed ${join(directory, name)}`);
+    const pending = [];
+    for (const { name, body, text } of templates) {
+      const path = join(directory, name);
+      const old = readTemplate(path);
+      if (old === text || old === body) continue; // Unmarked legacy matches stay unclaimed.
+      if (old !== undefined) {
+        const marker = stamp.exec(old);
+        if (marker?.[1] !== profile || marker[2] !== digest(old.replace(stamp, '---\n')) || !old.includes(`\nname: ${name.slice(0, -3)}\n`)) {
+          throw new Error(`Refusing to replace ${name}: personal, edited, or pinned to another Pi directory.`);
+        }
+      }
+      pending.push({ path, old, text });
     }
-  } finally { rmSync(stage, { recursive: true, force: true }); }
+    for (const { path, old, text } of pending) {
+      const next = join(stage, 'next');
+      const backup = join(stage, 'previous');
+      writeFileSync(next, text, { flag: 'wx', mode: 0o600 });
+      try {
+        if (old !== undefined) renameSync(path, backup);
+        try {
+          if (old !== undefined && readTemplate(backup) !== old) throw new Error('Template changed during update.');
+          linkSync(next, path); // Never replace a concurrently created personal file.
+        } catch (error) {
+          if (old !== undefined) { linkSync(backup, path); unlinkSync(backup); }
+          throw error;
+        }
+        if (old !== undefined) unlinkSync(backup);
+      } finally { unlinkSync(next); }
+    }
+    return pending.length;
+  } finally { rmdirSync(stage); } // Fails closed if recovery material remains.
 }
 
-try { main(process.argv.slice(2)); }
-catch (error) { console.error(error.message); process.exitCode = 1; }
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+  try {
+    const args = process.argv.slice(2);
+    if (args.length === 1 && args[0] === '--help') console.log(usage);
+    else if (args.length === 2 && args[0] === '--agent-dir') console.log(syncTemplates(args[1]) ? 'Steel templates synchronized.' : 'Already installed; no changes.');
+    else throw new Error(usage);
+  } catch (error) { console.error(error.message); process.exitCode = 1; }
+}

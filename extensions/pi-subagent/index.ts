@@ -73,6 +73,20 @@ export default async function (pi: ExtensionAPI) {
 				if (result.code === 0 && !result.killed && !result.truncated && result.stdout.includes("herdr-core")) {
 					const guidance = parseFrontmatter(readFileSync(skillPath, "utf8")).body;
 					const manual = result.stdout;
+					if (process.env.PI_ORCHESTRATED_CHILD !== "1") {
+						let checked = false;
+						pi.on("session_start", async (_event, ctx) => {
+							if (checked) return;
+							checked = true;
+							try {
+								const { syncTemplates } = await import("./skills/herdr-delegation/install.mjs");
+								syncTemplates(getAgentDir());
+							} catch (error) {
+								const detail = String(error instanceof Error ? error.message : error).replace(/[\x00-\x1f\x7f-\x9f]/g, " ").slice(0, 300);
+								if (ctx.hasUI) ctx.ui.notify(`Herdr role setup incomplete: ${detail} Inspect the templates, then /reload.`, "warning");
+							}
+						});
+					}
 					pi.on("before_agent_start", (event, ctx) => {
 						// Reuse the bounded startup read, not a second model-issued command.
 						// A named section lets Pi diff updates without replacing the system prompt.

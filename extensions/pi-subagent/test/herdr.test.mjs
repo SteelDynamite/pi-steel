@@ -64,7 +64,7 @@ for (const child of [false, true]) test(`hc handoff preloads guidance without di
 	const result = await register();
 	assert.deepEqual(result.tools, []);
 	assert.equal(result.commands.size, 0);
-	assert.deepEqual([...result.handlers.keys()], ["before_agent_start"]);
+	assert.deepEqual([...result.handlers.keys()], child ? ["before_agent_start"] : ["session_start", "before_agent_start"]);
 	const event = { systemPrompt: "untouched", systemPromptOptions: { sections: { other: "preserved", herdr_delegation: "stale" } } };
 	const before = result.handlers.get("before_agent_start")[0];
 	assert.equal(before(event, result.ctx), undefined, "do not replace the complete system prompt");
@@ -223,7 +223,7 @@ test("fresh registrations retain native Codync delegation and preserve non-Codyn
 	process.env.HC_TERMINAL_ID = "t7";
 	const handoff = await register();
 	assert.equal(handoff.tools.length, 0);
-	assert.deepEqual([...handoff.handlers.keys()], ["before_agent_start"]);
+	assert.deepEqual([...handoff.handlers.keys()], ["session_start", "before_agent_start"]);
 	assert.equal(handoff.probes.length, 1);
 });
 

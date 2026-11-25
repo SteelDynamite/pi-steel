@@ -18,8 +18,8 @@ if (!process.env.STEEL_HERDR_CASE) {
   test("Shipped installer creates discoverable Steel roles without a running Herdr core", { skip: process.platform === "win32" }, async t => {
     const home = mkdtempSync(join(tmpdir(), "steel-hc-catalog-"));
     t.after(() => rmSync(home, { recursive: true, force: true }));
-    const env = { HOME: home, PATH: process.env.PATH, XDG_CONFIG_HOME: join(home, ".config"), XDG_RUNTIME_DIR: home };
-    const dir = join(home, ".config/herdr-core/templates");
+    const env = { HOME: home, PATH: process.env.PATH, XDG_CONFIG_HOME: join(home, "custom-config"), XDG_RUNTIME_DIR: home };
+    const dir = join(env.XDG_CONFIG_HOME, "herdr-core/templates");
     await run(process.execPath, [join(root, "extensions/pi-subagent/skills/herdr-delegation/install.mjs"), "--agent-dir", join(home, "agent")], { cwd: home, env });
     const roles = ["steel-scout", "steel-worker", "steel-worker-visual", "steel-reviewer"];
     for (const name of roles) assert(readFileSync(join(dir, `${name}.md`), "utf8").includes(`name: ${name}\n`));
@@ -69,7 +69,7 @@ else console.log('# hc manual (herdr-core)\\n' + process.env.STEEL_HERDR_MANUAL)
           const { stdout, stderr } = await run(process.execPath, ["--import", "tsx", fileURLToPath(import.meta.url)], {
             cwd: sourceRoot, timeout: 60_000,
             env: {
-              PATH: `${bin}:${process.env.PATH}`, HOME: home, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1",
+              PATH: `${bin}:${process.env.PATH}`, HOME: home, XDG_CONFIG_HOME: join(cwd, "config"), PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1",
               STEEL_TEST_PACKAGE_ROOT: root, STEEL_HERDR_CASE: variant, STEEL_HERDR_CWD: cwd, STEEL_HERDR_PROBES: probes, STEEL_HERDR_MANUAL: "manual-v1",
               NODE_OPTIONS: `--import=${join(sourceRoot, "test/fixtures/child-network-guard.mjs")}`, STEEL_NETWORK_ATTEMPTS: network,
               ...(variant !== "native" ? { HC_TERMINAL_ID: `t-${variant}` } : {}),
@@ -129,6 +129,12 @@ else console.log('# hc manual (herdr-core)\\n' + process.env.STEEL_HERDR_MANUAL)
       mode: "rpc", onError: error => errors.push(error),
       uiContext: { ...session.extensionRunner.getUIContext(), notify: message => notices.push(message) },
     });
+    const templatesDir = join(cwd, "config/herdr-core/templates");
+    if (variant === "herdr") {
+      for (const role of ["scout", "worker", "worker-visual", "reviewer"]) {
+        assert(readFileSync(join(templatesDir, `steel-${role}.md`), "utf8").includes(`'PI_CODING_AGENT_DIR=${agentDir}'`));
+      }
+    } else assert(!existsSync(templatesDir), `no template installation in ${variant}`);
     // Extension providers become available on bind, after SDK initial model selection.
     const localModel = modelRuntime.getModels().find(model => model.provider === "steel-herdr-local");
     assert(localModel);
