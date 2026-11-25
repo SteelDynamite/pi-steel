@@ -3,7 +3,6 @@ import test from "node:test";
 import { buildSessionContext } from "@earendil-works/pi-coding-agent";
 import { createRecapExtension } from "../index.ts";
 import {
-	automaticRecapEligible,
 	buildRecapHistory,
 	buildRecapPrompt,
 	CUSTOM_TYPE,
@@ -69,8 +68,7 @@ function harness(entries: any[], extension = createRecapExtension()) {
 			handlers.set(name, handler);
 		},
 		registerCommand(name: string, definition: any) {
-			assert.equal(name, "recap");
-			command = definition.handler;
+			if (name === "recap") command = definition.handler;
 		},
 		registerEntryRenderer(customType: string, value: any) {
 			assert.equal(customType, CUSTOM_TYPE);
@@ -140,9 +138,8 @@ test("recap parsing accepts plain text and rejects empty or oversized output", (
 	assert.equal(parseGeneratedRecap("x".repeat(701)), undefined);
 });
 
-test("automatic eligibility survives resume through custom recap entries", () => {
+test("lifetime progress counts conversation turns, not custom entries", () => {
 	const entries = conversation(3);
-	assert.equal(automaticRecapEligible(entries), true);
 	entries.push({
 		type: "custom",
 		customType: CUSTOM_TYPE,
@@ -151,10 +148,9 @@ test("automatic eligibility survives resume through custom recap entries", () =>
 		timestamp: new Date().toISOString(),
 		data: { version: 1, completedTurns: 3 },
 	});
-	assert.equal(automaticRecapEligible(entries), false);
+	assert.equal(recapProgress(entries).completedTurns, 3);
 	entries.push(...conversation(2).map((entry, index) => ({ ...entry, id: `later-${index}`, parentId: index === 0 ? "recap" : `later-${index - 1}` })));
 	assert.equal(recapProgress(entries).completedTurns, 5);
-	assert.equal(automaticRecapEligible(entries), true);
 });
 
 test("manual recap appends a display-only custom entry and renders persisted data", async () => {
@@ -179,18 +175,20 @@ test("manual recap appends a display-only custom entry and renders persisted dat
 	assert.match(rendered, /manual · test\/recap-model · \$0\.0012/);
 });
 
-test("settled sessions generate automatically after the configured delay", async () => {
-	const child = process.env.PI_ORCHESTRATED_CHILD;
-	delete process.env.PI_ORCHESTRATED_CHILD;
-	const h = harness(conversation(3), createRecapExtension({ idleDelayMs: 5, requestTimeoutMs: 1_000 }));
+test("only nonblank OpenMausBot markers disable all note registrations", () => {
+	const prior = process.env.OMB_MCP_CONFIG;
 	try {
-		h.handlers.get("agent_settled")!({}, h.ctx);
-		await new Promise((resolve) => setTimeout(resolve, 30));
-		assert.equal(h.appended.length, 1);
-		assert.equal(h.appended[0].data.trigger, "automatic");
-	} finally {
-		h.handlers.get("session_shutdown")!({}, h.ctx);
-		if (child === undefined) delete process.env.PI_ORCHESTRATED_CHILD;
-		else process.env.PI_ORCHESTRATED_CHILD = child;
-	}
+		for (const marker of [undefined, " ", "{}", "config"]) {
+			if (marker === undefined) delete process.env.OMB_MCP_CONFIG; else process.env.OMB_MCP_CONFIG = marker;
+			const commands: string[] = [], hooks: string[] = [];
+			createRecapExtension()({ registerCommand: (n: string) => commands.push(n), on: (n: string) => hooks.push(n), registerEntryRenderer() {} } as any);
+			assert.equal(commands.includes("note"), !marker?.trim());
+			assert.equal(hooks.includes("message_start"), !marker?.trim());
+			assert.ok(commands.includes("recap"));
+		}
+	} finally { if (prior === undefined) delete process.env.OMB_MCP_CONFIG; else process.env.OMB_MCP_CONFIG = prior; }
+});
+
+test("settlement cannot schedule a recap", () => {
+	assert.equal(harness(conversation(3)).handlers.has("agent_settled"), false);
 });

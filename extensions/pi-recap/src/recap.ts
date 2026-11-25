@@ -3,10 +3,6 @@ import { buildSessionContext, type SessionContext, type SessionEntry } from "@ea
 type Messages = SessionContext["messages"];
 
 export const CUSTOM_TYPE = "pi-recap";
-export const IDLE_DELAY_MS = 30 * 60 * 1_000;
-export const RETRY_DELAY_MS = 30 * 1_000;
-export const MIN_COMPLETED_TURNS = 3;
-export const MIN_TURNS_BETWEEN_RECAPS = 2;
 export const MAX_HISTORY_TURNS = 8;
 export const MAX_PROMPT_BYTES = 32 * 1_024;
 export const MAX_SUMMARY_CHARS = 700;
@@ -172,34 +168,11 @@ export function parseGeneratedRecap(text: string): Pick<StoredRecap, "summary"> 
 
 export function recapProgress(entries: readonly SessionEntry[]): {
 	completedTurns: number;
-	lastRecappedTurnCount?: number;
-	lastAssistantAt?: number;
 } {
-	let lastRecappedTurnCount: number | undefined;
-	let lastAssistantAt: number | undefined;
-	for (const entry of entries) {
-		if (entry.type === "custom" && entry.customType === CUSTOM_TYPE) {
-			const data = entry.data as Partial<StoredRecap> | undefined;
-			if (data?.version === 1 && Number.isInteger(data.completedTurns)) {
-				lastRecappedTurnCount = data.completedTurns;
-			}
-		}
-	}
 	// Progress is branch-lifetime metadata, not recap input. Keep its baseline
 	// stable across compaction; only prompt construction uses effective context.
 	const messages = entries.flatMap((entry) => entry.type === "message" ? [entry.message] : []);
-	for (const message of messages) {
-		if (message.role === "assistant" && message.stopReason === "stop") lastAssistantAt = message.timestamp;
-	}
 	return {
 		completedTurns: conversationExchanges(entries, messages).filter((exchange) => exchange.assistant).length,
-		lastRecappedTurnCount,
-		lastAssistantAt,
 	};
-}
-
-export function automaticRecapEligible(entries: readonly SessionEntry[]): boolean {
-	const { completedTurns, lastRecappedTurnCount } = recapProgress(entries);
-	return completedTurns >= MIN_COMPLETED_TURNS
-		&& (lastRecappedTurnCount === undefined || completedTurns - lastRecappedTurnCount >= MIN_TURNS_BETWEEN_RECAPS);
 }

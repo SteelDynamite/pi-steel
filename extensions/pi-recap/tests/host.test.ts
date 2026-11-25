@@ -67,7 +67,7 @@ if (process.env.RECAP_HOST_CHILD !== "1") {
 
 	// Use Pi's real loader and aliases, not the module's older standalone dependency tree.
 	const wrapper = join(process.env.HOME!, "recap.ts");
-	writeFileSync(wrapper, `import { createRecapExtension } from ${JSON.stringify(fileURLToPath(new URL("../index.ts", import.meta.url)))};\nexport default createRecapExtension({idleDelayMs: 5, retryDelayMs: 5, requestTimeoutMs: 80});\n`);
+	writeFileSync(wrapper, `import { createRecapExtension } from ${JSON.stringify(fileURLToPath(new URL("../index.ts", import.meta.url)))};\nexport default createRecapExtension({requestTimeoutMs: 80});\n`);
 	const loaded = await loadExtensions([wrapper], process.env.HOME!);
 	assert.deepEqual(loaded.errors, []);
 	const extension = loaded.extensions[0];
@@ -174,20 +174,7 @@ if (process.env.RECAP_HOST_CHILD !== "1") {
 	await new Promise(resolve => setTimeout(resolve, 1)); assert.equal(stored.length, 0);
 	block = false; await command(); assert.equal(stored.length, 1, "manual retry remains available");
 
-	await reset(); for (let i = 0; i < 3; i++) exchange(`turn ${i}`); reason = "error";
-	await emit("agent_settled");
-	await waitUntil(() => requests.length === 2 && notices.length === 1);
-	await new Promise(resolve => setTimeout(resolve, 30));
-	assert.equal(requests.length, 2, "exactly one automatic retry"); assert.equal(stored.length, 0);
-	reason = "stop"; await command(); assert.equal(stored.length, 1);
-	await emit("agent_settled"); await new Promise(resolve => setTimeout(resolve, 25));
-	assert.equal(requests.length, 3, "successful recap advances eligibility");
-
-	await reset(); for (let i = 0; i < 3; i++) exchange(`turn ${i}`); block = true;
-	await emit("agent_settled");
-	await waitUntil(() => requests.length === 2 && notices.length === 1);
-	assert.match(notices[0], /timed out/);
-	assert.equal(stored.length, 0);
+	assert.equal(extension.handlers.has("agent_settled"), false, "manual-only recaps have no idle scheduler");
 
 	for (const mode of ["rpc", "json", "print", "child"]) {
 		await reset(); for (let i = 0; i < 3; i++) exchange(`turn ${i}`);
@@ -205,7 +192,7 @@ if (process.env.RECAP_HOST_CHILD !== "1") {
 	const firstKept = manager.appendMessage({ role: "user", content: "new work", timestamp: 6 });
 	manager.appendCompaction("summarized old work", firstKept, 1000);
 	manager.appendMessage(message()); exchange("more work");
-	await emit("agent_settled"); await waitUntil(() => stored.length === 2);
+	await emit("agent_settled"); assert.equal(stored.length, 1); await command();
 	assert.equal(stored[1].completedTurns, 5);
 
 	for (const change of ["branch", "busy", "pending"]) {
@@ -218,5 +205,36 @@ if (process.env.RECAP_HOST_CHILD !== "1") {
 		assert.equal(stored.length, 0, change);
 	}
 	await reset();
-	console.log("Pi 1.4 host recap regressions passed");
+	// Genuine registry + session store; the terminal-only keystroke flow also has a PTY test.
+	delete process.env.PI_OFFLINE; // local fixture only; fetch is blocked in this process.
+	const editor = { getExpandedText: () => "unsent draft" };
+	let focus: any = editor, view: any;
+	const tui = { getFocusedComponent: () => focus, setFocus: (c: any) => { if (focus) focus.focused = false; focus = c; if (c) c.focused = true; }, requestRender() {} };
+	ctx.ui.setWidget = (_key: string, factory?: Function) => { view = factory?.(tui, { fg: (_: string, s: string) => s }); };
+	const sendEvent = async (name: string, payload: any) => { for (const fn of extension.handlers.get(name) ?? []) await fn(payload, ctx); };
+	const submitted = async (source = "interactive") => {
+		await sendEvent("input", { source });
+		await sendEvent("message_start", { message: { role: "user", content: "Current high-level task", timestamp: 123 } });
+	};
+	await extension.commands.get("note").handler("", ctx); view.handleInput("PRIVATE_PIN"); view.handleInput("\r");
+	assert.equal(focus, editor); assert.doesNotMatch(JSON.stringify(manager.buildSessionContext()), /PRIVATE_PIN/);
+	const pinLeaf = manager.getLeafId();
+	await submitted("extension"); assert.equal(requests.length, 0);
+	await submitted(); await waitUntil(() => view.render(120).join(" ").includes("Verified progress"));
+	assert.equal(requests.length, 1); assert.match(JSON.stringify(requests[0].context.messages.find((m: any) => m.role === "system")), /one short sentence/);
+	assert.match(JSON.stringify(requests[0].context.messages), /Current high-level task/);
+	assert.doesNotMatch(JSON.stringify(requests[0].context), /PRIVATE_PIN/);
+	await emit("agent_start"); await emit("agent_settled"); assert.equal(requests.length, 1);
+	view.handleInput("\x1b[B"); view.handleInput("\r"); view.handleInput("\r");
+	assert.equal(stored.at(-1).text, "Verified progress; validation remains pending."); assert.equal(focus, editor);
+	await submitted(); view.handleInput("\x1b"); assert.equal(stored.length, 2);
+	block = true; await submitted(); view.handleInput("\r"); view.handleInput(" unsaved");
+	assert.equal(requests.at(-1).options.signal.aborted, true);
+	for (const finish of pending.splice(0)) finish(); await new Promise(resolve => setImmediate(resolve));
+	assert.match(view.render(160).join(" "), /unsaved/); await emit("ui_prompt_start");
+	assert.equal(focus, editor); assert.equal(stored.length, 2); await emit("ui_prompt_end");
+	manager.branch(pinLeaf); await emit("session_tree"); assert.match(view.render(100).join(""), /PRIVATE_PIN/);
+	view.handleMouse({ type: "click", button: "left" }); assert.equal(focus, view); view.handleInput("\x1b");
+	await emit("session_shutdown");
+	console.log("Pi 1.4 host recap and note regressions passed");
 }

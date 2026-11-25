@@ -86,6 +86,8 @@ In OpenMausBot with [`pi-export`](extensions/pi-export/README.md) selected, ask 
 
 `Everything` includes [pi-paseo](extensions/pi-paseo/README.md): automatic terminal activity and waiting-for-input reporting inside Paseo, without duplicating its native Pi chat integration. Outside Paseo and in orchestrated children, reporting is inactive.
 
+The [return note](extensions/pi-recap/README.md#return-note-interactive-pi-terminal) in `pi-recap` lets you choose, edit, and pin one line when you submit a prompt in the terminal. Enter pins it; Esc leaves the previous note alone. MausBot detection disables the note feature. Recaps are manual-only via `/recap`.
+
 Paseo control tools default **off**. Use `/paseo` or `/paseo tools on|off`; the global setting lives in `<agent-dir>/paseo.json`. This controls only `pi-paseo`'s own tool, leaving Paseo-injected tools untouched. Controls use the existing Paseo CLI and require one unambiguous inherited `PASEO_HOME` or `PASEO_HOST`; the extension does not read credentials or edit Paseo settings. See the module README for commands, notification limits, and validation boundaries.
 
 ### Codync and OpenMausBot

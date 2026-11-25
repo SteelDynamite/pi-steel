@@ -7,14 +7,12 @@ import type {
 	SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import { Box, Text } from "@earendil-works/pi-tui";
+import { registerNotes } from "./src/notes.ts";
 import {
-	automaticRecapEligible,
 	buildRecapPrompt,
 	CUSTOM_TYPE,
-	IDLE_DELAY_MS,
 	parseGeneratedRecap,
 	recapProgress,
-	RETRY_DELAY_MS,
 	type StoredRecap,
 } from "./src/recap.ts";
 
@@ -31,8 +29,6 @@ type RecapRegistry = ExtensionContext["modelRegistry"] & {
 };
 
 interface RuntimeOptions {
-	idleDelayMs?: number;
-	retryDelayMs?: number;
 	requestTimeoutMs?: number;
 }
 
@@ -51,23 +47,15 @@ function displayText(text: string): string {
 }
 
 export function createRecapExtension(options: RuntimeOptions = {}) {
-	const idleDelayMs = options.idleDelayMs ?? IDLE_DELAY_MS;
-	const retryDelayMs = options.retryDelayMs ?? RETRY_DELAY_MS;
 	const requestTimeoutMs = options.requestTimeoutMs ?? 60_000;
 
 	return function recapExtension(pi: ExtensionAPI) {
-		let timer: NodeJS.Timeout | undefined;
+		if (!process.env.OMB_MCP_CONFIG?.trim()) registerNotes(pi);
 		let generation: {
 			controller: AbortController;
 			ctx: ExtensionContext;
 			leafId: string | null;
-			trigger: "automatic" | "manual";
 		} | undefined;
-
-		const clearTimer = () => {
-			if (timer) clearTimeout(timer);
-			timer = undefined;
-		};
 
 		const cancelGeneration = () => {
 			const active = generation;
@@ -77,42 +65,25 @@ export function createRecapExtension(options: RuntimeOptions = {}) {
 			active.ctx.ui.setStatus(CUSTOM_TYPE, undefined);
 		};
 
-		const cancelAll = () => {
-			clearTimer();
-			cancelGeneration();
-		};
-
-		const automaticEnabled = (ctx: ExtensionContext) =>
-			ctx.mode === "tui" && process.env.PI_ORCHESTRATED_CHILD !== "1";
-
 		const generate = async (
 			ctx: ExtensionContext,
-			trigger: "automatic" | "manual",
 			expectedLeaf = ctx.sessionManager.getLeafId(),
-			attempt = 0,
 		): Promise<void> => {
 			if (generation) {
-				if (trigger === "manual" && ctx.hasUI) ctx.ui.notify("A recap is already being generated.", "warning");
+				if (ctx.hasUI) ctx.ui.notify("A recap is already being generated.", "warning");
 				return;
 			}
 			if (expectedLeaf !== ctx.sessionManager.getLeafId()) return;
 			const entries = ctx.sessionManager.getBranch() as SessionEntry[];
 			const messages = buildSessionContext(entries).messages;
-			if (trigger === "automatic" && (
-				!automaticEnabled(ctx)
-				|| !ctx.isIdle()
-				|| ctx.hasPendingMessages()
-				|| ctx.ui.getEditorText().trim().length > 0
-				|| !automaticRecapEligible(entries)
-			)) return;
 			const prompt = buildRecapPrompt(entries, messages);
 			if (!prompt) {
-				if (trigger === "manual" && ctx.hasUI) ctx.ui.notify("No conversation history to recap.", "warning");
+				if (ctx.hasUI) ctx.ui.notify("No conversation history to recap.", "warning");
 				return;
 			}
 			const model = ctx.model;
 			if (!model || !ctx.modelRegistry.hasConfiguredAuth(model)) {
-				if (trigger === "manual" && ctx.hasUI) ctx.ui.notify("The active model is unavailable for recap generation.", "warning");
+				if (ctx.hasUI) ctx.ui.notify("The active model is unavailable for recap generation.", "warning");
 				return;
 			}
 
@@ -120,11 +91,9 @@ export function createRecapExtension(options: RuntimeOptions = {}) {
 				controller: new AbortController(),
 				ctx,
 				leafId: expectedLeaf,
-				trigger,
 			};
 			generation = active;
 			ctx.ui.setStatus(CUSTOM_TYPE, "Generating recap…");
-			let retry = false;
 			const deadline = new AbortController();
 			const timeout = setTimeout(() => deadline.abort(new Error("Recap generation timed out.")), requestTimeoutMs);
 			const signal = AbortSignal.any([active.controller.signal, deadline.signal, ...(ctx.signal ? [ctx.signal] : [])]);
@@ -166,7 +135,7 @@ export function createRecapExtension(options: RuntimeOptions = {}) {
 					generatedAt: new Date().toISOString(),
 					leafId: expectedLeaf,
 					completedTurns: recapProgress(entries).completedTurns,
-					trigger,
+					trigger: "manual",
 					model: `${model.provider}/${model.id}`,
 					usage: response.usage,
 				};
@@ -174,9 +143,7 @@ export function createRecapExtension(options: RuntimeOptions = {}) {
 				if (ctx.mode === "rpc") ctx.ui.notify(`Recap: ${data.summary}`, "info");
 			} catch (error) {
 				if (active.controller.signal.aborted || ctx.signal?.aborted || generation !== active) return;
-				retry = trigger === "automatic" && attempt === 0
-					&& expectedLeaf === ctx.sessionManager.getLeafId() && ctx.isIdle();
-				if (!retry && ctx.hasUI) {
+				if (ctx.hasUI) {
 					const message = error instanceof Error ? error.message : String(error);
 					ctx.ui.notify(`Could not generate recap: ${message}`, "warning");
 				}
@@ -189,26 +156,6 @@ export function createRecapExtension(options: RuntimeOptions = {}) {
 				}
 			}
 
-			if (retry && generation === undefined) {
-				timer = setTimeout(() => {
-					timer = undefined;
-					void generate(ctx, "automatic", expectedLeaf, 1);
-				}, retryDelayMs);
-				timer.unref();
-			}
-		};
-
-		const scheduleAutomatic = (ctx: ExtensionContext, delayMs = idleDelayMs) => {
-			clearTimer();
-			if (!automaticEnabled(ctx)) return;
-			const entries = ctx.sessionManager.getBranch() as SessionEntry[];
-			if (!automaticRecapEligible(entries)) return;
-			const leafId = ctx.sessionManager.getLeafId();
-			timer = setTimeout(() => {
-				timer = undefined;
-				void generate(ctx, "automatic", leafId);
-			}, Math.max(0, delayMs));
-			timer.unref();
 		};
 
 		pi.registerEntryRenderer<StoredRecap>(CUSTOM_TYPE, (entry, { expanded }, theme) => {
@@ -231,30 +178,15 @@ export function createRecapExtension(options: RuntimeOptions = {}) {
 			description: "Summarize the current session without adding the recap to model context",
 			handler: async (_args, ctx: ExtensionCommandContext) => {
 				await ctx.waitForIdle();
-				cancelAll();
-				await generate(ctx, "manual");
+				cancelGeneration();
+				await generate(ctx);
 			},
 		});
 
-		pi.on("session_start", (_event, ctx) => {
-			cancelAll();
-			const entries = ctx.sessionManager.getBranch() as SessionEntry[];
-			const { lastAssistantAt } = recapProgress(entries);
-			const elapsed = lastAssistantAt === undefined ? 0 : Math.max(0, Date.now() - lastAssistantAt);
-			scheduleAutomatic(ctx, Math.max(0, idleDelayMs - elapsed));
-		});
-
-		pi.on("agent_start", () => cancelAll());
-		pi.on("input", () => {
-			cancelAll();
-			return { action: "continue" };
-		});
-		pi.on("model_select", (_event, ctx) => {
-			cancelAll();
-			scheduleAutomatic(ctx);
-		});
-		pi.on("agent_settled", (_event, ctx) => scheduleAutomatic(ctx));
-		pi.on("session_shutdown", () => cancelAll());
+		pi.on("agent_start", cancelGeneration);
+		pi.on("input", cancelGeneration);
+		pi.on("model_select", cancelGeneration);
+		pi.on("session_shutdown", cancelGeneration);
 	};
 }
 

@@ -78,7 +78,14 @@ test("real TUI: all bundled modules, local model, footer/editor/widgets, minimal
     send("/tui-probe");
     await wait("initial full probe", () => events().some(event => event.event === "probe" && event.active === "full"));
     send("Exercise the local TUI fixture.");
-    await wait("one model run settled", () => events().some(event => event.event === "settled"));
+    await wait("note chooser during agent work", () => plain(transcript).includes("Write a new note…"));
+    child.stdin!.write("\r");
+    await wait("single-line note editor", () => plain(transcript).includes("Enter pins"));
+    child.stdin!.write("\x1b[200~Verify\ncounts\x1b[201~");
+    await wait("one model run settled with a note draft", () => events().some(event => event.event === "settled"));
+    assert(!plain(transcript).includes("Note: Verify counts"), "pasting and settlement must not submit");
+    child.stdin!.write("\r");
+    await wait("pinned single-line note", () => plain(transcript).includes("Note: Verify counts"));
     await wait("todo widget rendered", () => events().some(event => event.event === "render" && event.owner === "todo"));
     await wait("rendered model response", () => plain(transcript).includes("TUI_LOCAL_COMPLETE"));
     await wait("local suggestion request", () => events().some(event => event.event === "suggestion-request"));
@@ -88,6 +95,11 @@ test("real TUI: all bundled modules, local model, footer/editor/widgets, minimal
     assert.equal(events().filter(event => event.event === "request").length, 2, "one run: todo tool call and final response only");
     assert(events().filter(event => event.event === "request").every(event => event.warning), "pending warning reaches every provider request without persisting a turn");
 
+    const editOffset = transcript.length;
+    send("/note");
+    await wait("direct note editor", () => plain(transcript.slice(editOffset)).includes("Enter pins"));
+    child.stdin!.write(" discard\x1b");
+    await wait("Esc restores saved note", () => plain(transcript.slice(editOffset)).includes("Note: Verify counts"));
     for (const active of ["minimal", "full"]) {
       const starts = events().filter(event => event.event === "start").length;
       const outputOffset = transcript.length;
