@@ -97,6 +97,13 @@ test("real TUI: all bundled modules, local model, footer/editor/widgets, minimal
     assert.equal(events().filter(event => event.event === "request").length, 2, "one run: todo tool call and final response only");
     assert(events().filter(event => event.event === "request").every(event => event.warning), "pending warning reaches every provider request without persisting a turn");
 
+    const checkWidgetOrder = async () => {
+      const offset = transcript.length;
+      child!.stdin!.write("\x1b[18~"); // Repaint a single frame with both widgets.
+      await wait("saved note rendered beneath todo", () => /● TUI smoke[^\n]*\n[^\n]*TUI coexistence sentinel[^\n]*\n[^\n]*Note: Verify counts/.test(plain(transcript.slice(offset))));
+      assert(!plain(transcript.slice(offset)).includes("Alt+N to edit"));
+    };
+    await checkWidgetOrder();
     const editOffset = transcript.length;
     child.stdin!.write("Finish with the "); // Resume this unfinished prompt after cancelling.
     child.stdin!.write("\x1bn");
@@ -126,6 +133,7 @@ test("real TUI: all bundled modules, local model, footer/editor/widgets, minimal
       await wait(`${active} probe`, () => events().filter(event => event.event === "probe" && event.active === active).length > previousProbes);
       const runtime = events().filter(event => event.event === "probe").at(-1);
       assert.equal(runtime.mode, "tui");
+      if (active === "full") await checkWidgetOrder();
       assert.equal(runtime.tools.includes("todo"), active === "full");
       assert.equal(runtime.tools.includes("subagent"), active === "full");
       assert.equal(runtime.commands.includes("mindful"), active === "full");

@@ -17,7 +17,8 @@ export function restoreNote(entries: readonly SessionEntry[]) {
 export function registerNotes(pi: ExtensionAPI) {
 	let panel: NotePanel | undefined;
 	let blocked = false;
-	const reset = () => { panel?.dispose(); panel = undefined; blocked = false; };
+	let unsubscribe: (() => void) | undefined;
+	const reset = () => { unsubscribe?.(); unsubscribe = undefined; panel?.close(); panel = undefined; blocked = false; };
 	const restore = (ctx: ExtensionContext) => {
 		reset();
 		if (!eligible(ctx)) return;
@@ -28,6 +29,12 @@ export function registerNotes(pi: ExtensionAPI) {
 				pi.appendEntry(KEY, { version: 1, text }); next.saved = text;
 			});
 			return panel = next;
+		});
+		// Pi displays above-editor widgets in insertion order. Reinsert the same
+		// component so a newly shown todo list moves above even an active draft.
+		unsubscribe = pi.events.on("pi-todo:widget-mounted", () => {
+			const current = panel;
+			if (current) ctx.ui.setWidget(KEY, () => current);
 		});
 	};
 	const edit = (ctx: ExtensionContext) => { if (eligible(ctx) && !blocked) panel?.edit(); };

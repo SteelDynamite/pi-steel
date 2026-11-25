@@ -81,7 +81,10 @@ class TodoWidget {
 	private getTitle: () => string | undefined;
 	private isHidden: () => boolean;
 
-	constructor(getTodos: () => Todo[], getTitle: () => string | undefined, isHidden: () => boolean) {
+	private onMount: () => void;
+
+	constructor(getTodos: () => Todo[], getTitle: () => string | undefined, isHidden: () => boolean, onMount: () => void) {
+		this.onMount = onMount;
 		this.getTodos = getTodos;
 		this.getTitle = getTitle;
 		this.isHidden = isHidden;
@@ -122,6 +125,7 @@ class TodoWidget {
 				{ placement: "aboveEditor" },
 			);
 			this.widgetRegistered = true;
+			this.onMount();
 		} else {
 			this.tui?.requestRender();
 		}
@@ -201,7 +205,8 @@ export default function (pi: ExtensionAPI) {
 	let allTerminalSinceTurn: number | undefined;
 	let widgetHidden = false;
 	let orderReminderSent = false;
-	const widget = new TodoWidget(() => model.todos, () => model.title, () => widgetHidden);
+	const widget = new TodoWidget(() => model.todos, () => model.title, () => widgetHidden,
+		() => pi.events.emit("pi-todo:widget-mounted", undefined));
 
 	const allTodosTerminal = () => model.todos.length > 0 && model.todos.every(isTerminal);
 

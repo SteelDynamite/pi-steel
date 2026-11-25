@@ -1,4 +1,4 @@
-import { Input, matchesKey, truncateToWidth, type Component, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { Input, matchesKey, truncateToWidth, wrapTextWithAnsi, type Component, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 
 export const oneLine = (text: string) => text.replace(/[\r\n\t\u2028\u2029]+/gu, " ").replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/gu, "");
@@ -56,7 +56,6 @@ export class NotePanel implements Component {
 		}
 		this.tui.requestRender();
 	}
-	dispose() { this.close(); }
 	invalidate() { this.input.invalidate(); }
 	handleMouse(event: TuiMouseEvent) {
 		if (this.mode !== "pinned" || event.button !== "left") return;
@@ -81,7 +80,11 @@ export class NotePanel implements Component {
 	private pasting = false;
 	render(width: number) {
 		const line = (s: string) => truncateToWidth(s, width);
-		if (this.mode === "pinned") return [line(this.theme.fg("accent", "Note: ") + (this.saved || "—") + this.theme.fg("dim", "  Alt+N to edit"))];
+		if (this.mode === "pinned") {
+			const label = this.theme.fg("accent", "Note: ");
+			return this.saved ? wrapTextWithAnsi(label + this.saved, width).map(line)
+				: [line(label + "—" + this.theme.fg("dim", "  Alt+N to edit"))];
+		}
 		return [line(this.theme.fg("accent", "Edit note · Enter pins · Ctrl+C clears · Esc cancels")), ...this.input.render(width).map(line)];
 	}
 }

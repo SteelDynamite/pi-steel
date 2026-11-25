@@ -25,6 +25,7 @@ type ToolTextContent = { type: "text"; text: string };
 type ToolResult<TDetails> = { content: ToolTextContent[]; details: TDetails; isError?: boolean };
 
 export interface ExtensionAPI {
+	events: { emit(channel: string, data: unknown): void };
 	appendEntry(customType: string, data?: unknown): void;
 	on(event: "agent_before_settle", handler: (event: { outcome: "completed" | "aborted" | "error" }, ctx: ExtensionContext) => unknown): void;
 	on(event: string, handler: (event: unknown, ctx: ExtensionContext) => unknown | Promise<unknown>): void;

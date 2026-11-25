@@ -23,6 +23,7 @@ function createHarness(mode: Mode, branch: unknown[] = []) {
 	let tool: Tool | undefined;
 
 	createExtension({
+		events: { emit() {} },
 		on(event: string, handler: Handler) {
 			const existing = handlers.get(event) ?? [];
 			existing.push(handler);

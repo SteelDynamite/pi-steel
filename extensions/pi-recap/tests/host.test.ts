@@ -224,7 +224,9 @@ if (process.env.RECAP_HOST_CHILD !== "1") {
 	const pinLeaf = manager.getLeafId();
 	await submitted("extension"); assert.equal(requests.length, 0);
 	await submitted(); await emit("agent_end"); await emit("agent_settled");
-	assert.equal(focus, editor); assert.deepEqual(view.render(120), ["Note: PRIVATE_PIN  Alt+N to edit"]);
+	assert.equal(focus, editor); assert.deepEqual(view.render(120), ["Note: PRIVATE_PIN"]);
+	assert.deepEqual(view.render(7).map((row: string) => row.trimEnd()), ["Note:", "PRIVATE", "_PIN"]);
+	assert.deepEqual(view.render(120), ["Note: PRIVATE_PIN"], "reflow does not change the saved text");
 	await shortcut(); view.handleInput("\x03"); view.handleInput("\x03");
 	assert.equal(focus, view); view.handleInput("\x1b"); assert.equal(stored.length, 1);
 	assert.match(view.render(120)[0], /PRIVATE_PIN/);
