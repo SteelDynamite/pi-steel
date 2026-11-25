@@ -27,11 +27,11 @@ for d in agents/*; do ln -sfn "$(pwd)/$d" ~/.pi/agent/agents/$(basename "$d"); d
 
 Delegation requires the hosting `@earendil-works/pi-coding-agent` package to include its runnable CLI, not just an embedded SDK. Node.js and Bun script hosts use that package's declared `bin.pi`; packaged Bun Pi executables use the adjacent Pi distribution. SDK host entrypoints (including bots) are never reused as worker scripts. Missing or unidentifiable CLI installations fail before spawning; there is no `PATH` fallback. Source-only SDK builds need a built CLI. Child environment inheritance is unchanged, not credential isolation.
 
-## Codync and OpenMausBot suppression
+## Codync and OpenMausBot
 
-When `CODYNC_PI_MCP_SERVERS` (Codync, including `"{}"`) or `OMB_MCP_CONFIG` (OpenMausBot's MCP configuration path) is nonblank at initialization, the module stays imported but registers no native tools, settings command, agent advertising, lifecycle hooks, or Herdr guidance. Both signals take precedence over `HC_TERMINAL_ID`; neither path runs `hc`, even with guards enabled. Generic RPC mode alone does not enable suppression. Detection uses only the presence of a nonblank launcher value; it neither logs the value nor reads MCP configuration.
+When `CODYNC_PI_MCP_SERVERS` (Codync, including `"{}"`) or `OMB_MCP_CONFIG` (OpenMausBot's MCP configuration path) is nonblank at initialization, the module registers its native `subagent` tool, settings command, and behavioral agent list just as it does in ordinary Pi. Both signals take precedence over `HC_TERMINAL_ID`; neither path runs `hc`, even with guards enabled. Generic RPC mode alone does not identify either host. Detection uses only the presence of a nonblank launcher value; it neither logs the value nor reads MCP configuration.
 
-**Exception:** `PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS=1` retains native delegation and its explicitly enabled boundary guards. A TUI/RPC parent receives one warning per extension runtime explaining the exception; orchestrated children and headless contexts stay quiet. Other values do not enable the exception.
+Behavioral agents need no opt-in. Only `PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS=1` enables locational discovery and boundary guards. In that case a TUI/RPC parent receives one notice per extension runtime; orchestrated children and headless contexts stay quiet.
 
 This is process-local: no global loadout or saved settings change. `/reload` reevaluates registration from the process environment; start a new process if its launch environment changes. Existing session text is not erased. Ordinary Pi and Herdr behavior remain unchanged when neither bot signal is present.
 
@@ -41,7 +41,7 @@ With a nonempty `HC_TERMINAL_ID`, initialization runs `hc --skill` once through 
 
 The guide is preloaded, not advertised as a skill to read. The model need not reread it, rerun `hc --skill`, or look up the supplied environment. Independent remaining template/help lookups should be batched and reused. This trades upfront context tokens in Herdr sessions for fewer preparatory model turns; actual agent behavior can still require discovery. The check reads the binary's manual, not daemon health or account readiness, and does not start a core.
 
-In handoff mode, the module is imported but registers no native tool, settings command, behavioral advertising, or native lifecycle handlers. It does not translate `SUBAGENTS.md`, launch agents itself, or enforce native resume, model-selection, boundary, or cleanup policies. The model operates `hc` through its shell tool. Templates or the launched agent's defaults choose model, thinking, and speed; the parent's temporary selections are not automatically inherited.
+In handoff mode, the module is imported but registers no native tool, settings command, behavioral advertising, or native lifecycle handlers. It does not install templates, launch agents itself, or enforce native resume, model-selection, boundary, or cleanup policies. The model operates `hc` through its shell tool. Templates or the launched agent's defaults choose model, thinking, and speed; the parent's temporary selections are not automatically inherited.
 
 Outside `hc` (including the older `HERDR_ENV`-based TUI), normal delegation is unchanged. Missing/broken `hc`, a failed or truncated check, or a missing loader retains normal delegation and produces one TUI/RPC warning per parent runtime. Orchestrated children stay quiet. Explicit `PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS=1` always retains native delegation and its guards instead of handing off. `/reload` rechecks the decision; there are no retries, background probes, automatic installs, or global setting changes.
 
@@ -50,6 +50,19 @@ Install/update `hc` separately from <https://herdr.dev/core/> and ensure it is o
 The guidance directs Pi helper launches to explicitly set `PI_ORCHESTRATED_CHILD=1` and the intended `PI_CODING_AGENT_DIR`, and to choose cwd and project trust deliberately. This is agent guidance, not a launcher guarantee. Do not assume the daemon inherits the caller's environment or that helpers inherit parent `-e` flags. Model-driven `hc` delegation and non-Linux behavior require separate runtime validation; successful manual discovery alone does not establish them.
 
 Native prompt guidance uses the `pi_subagent` system-prompt section; Herdr handoff uses `herdr_delegation`. Each hook replaces only its own section, preserving other extensions' sections and per-request prompt updates. Empty native guidance removes its section. These hooks require Pi's structured `systemPromptOptions.sections` API; Steel's integration tests target Pi 1.4.0.
+
+### Install the Steel roles for Herdr
+
+On the POSIX machine where `hc` will launch Pi, run the installer explicitly from the pi-steel package root. Supply the **same absolute Pi agent directory** used by the parent:
+
+```sh
+node extensions/pi-subagent/skills/herdr-delegation/install.mjs --agent-dir "$HOME/.pi/agent"
+hc templates --json
+```
+
+This creates `steel-scout`, `steel-worker`, `steel-worker-visual`, and `steel-reviewer` under `~/.config/herdr-core/templates/`. It reads only the four **bundled** `agents/<role>/SUBAGENTS.md` sources (not project/user overrides). Each snapshot supplies the body as first-message instructions plus the role’s static model, optional thinking level, and optional Pi CLI tool selection. It launches interactive `pi` on the target's PATH with `PI_ORCHESTRATED_CHILD=1` and the pinned agent directory. Tool selection is not sandboxing. Caller-model rules, temporary speed, native resume, and native cleanup are not reproduced.
+
+The guide recommends scout for recon, worker for implementation, visual worker for image inspection, and reviewer **only for explicitly requested review**. The main agent checks the installed template and agent directory before delegating; small tasks need no helper. Neither selecting this extension nor `/reload` writes to Herdr. Re-running the installer leaves identical files untouched and refuses conflicts, including symlinks. For updates or removal, inspect and move aside only the four generated `.md` files you own; keep personal versions and backups. Herdr templates remain installed independently of the Steel loadout. Windows, non-POSIX command parsing, and paths containing single quotes or control characters are not supported by this installer.
 
 ## Tool
 

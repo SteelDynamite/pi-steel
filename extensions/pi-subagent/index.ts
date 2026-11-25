@@ -56,8 +56,7 @@ export default async function (pi: ExtensionAPI) {
 	// Bot launch signals take precedence over an inherited hc identity.
 	const botHost = process.env.CODYNC_PI_MCP_SERVERS?.trim() ? "Codync" : process.env.OMB_MCP_CONFIG?.trim() ? "OpenMausBot" : undefined;
 	if (botHost) {
-		if (!locationalAgentsEnabled()) return;
-		warning = `${botHost} detected; keeping native subagents because PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS=1 enables locational guards.`;
+		if (locationalAgentsEnabled()) warning = `${botHost} detected; native subagents have explicitly enabled locational guards.`;
 	} else if (process.env.HC_TERMINAL_ID?.trim()) {
 		const skillPath = fileURLToPath(new URL("./skills/herdr-delegation/SKILL.md", import.meta.url));
 		warning = "Herdr detected, but hc --skill is unavailable. Keeping native subagents. Install/update hc (https://herdr.dev/core/), ensure it is on Pi's PATH, then /reload.";

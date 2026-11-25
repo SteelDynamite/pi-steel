@@ -140,9 +140,9 @@ for (const marker of [undefined, "", " \t\n"]) test(`blank or absent bot markers
 	assert.deepEqual(result.probes, []);
 });
 
-for (const marker of ["{}", '{"memory":{"command":"unused"}}']) {
-	for (const child of [false, true]) test(`Codync suppresses all registration before hc (marker=${marker}, child=${child})`, async () => {
-		process.env.CODYNC_PI_MCP_SERVERS = marker;
+for (const [key, marker] of [["CODYNC_PI_MCP_SERVERS", "{}"], ["OMB_MCP_CONFIG", "/unused/config.json"]]) {
+	for (const child of [false, true]) test(`${key} keeps native delegation before hc (child=${child})`, async () => {
+		process.env[key] = marker;
 		process.env.HC_TERMINAL_ID = "t-overlap";
 		if (child) process.env.PI_ORCHESTRATED_CHILD = "1";
 		for (const gate of [undefined, "0", "true", " 1", "1 "]) {
@@ -150,14 +150,16 @@ for (const marker of ["{}", '{"memory":{"command":"unused"}}']) {
 			else process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS = gate;
 			const before = { ...process.env };
 			const result = await register();
-			assert.deepEqual(result.tools, []);
-			assert.equal(result.commands.size, 0);
-			assert.equal(result.handlers.size, 0);
-			assert.deepEqual(result.renderers, []);
+			assert.deepEqual(result.tools.map(tool => [tool.name, tool.exposure]), [["subagent", "model-only"]]);
+			assert(result.commands.has("subagent-settings"));
+			const event = { systemPromptOptions: { contextFiles: [], selectedTools: [], sections: {} } };
+			for (const handler of result.handlers.get("before_agent_start")) await handler(event, result.ctx);
+			assert.match(event.systemPromptOptions.sections.pi_subagent, /<id>scout<\/id>/);
+			assert.equal(event.systemPromptOptions.sections.herdr_delegation, undefined);
 			assert.deepEqual(result.probes, []);
 			await result.start();
 			assert.deepEqual(result.notices, []);
-			assert.deepEqual({ ...process.env }, before, "suppression does not mutate the environment");
+			assert.deepEqual({ ...process.env }, before, "registration does not mutate the environment");
 		}
 	});
 }
@@ -182,7 +184,7 @@ for (const child of [false, true]) test(`Codync locational opt-in retains native
 	await result.start();
 	assert.equal(result.notices.length, child ? 0 : 1);
 	if (!child) {
-		assert.match(result.notices[0][0], /Codync detected.*PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS=1.*locational guards/);
+		assert.match(result.notices[0][0], /Codync detected.*explicitly enabled locational guards/);
 		assert.equal(result.notices[0][1], "warning");
 	}
 	const directory = mkdtempSync(join(tmpdir(), "pi-codync-guard-"));
@@ -213,9 +215,9 @@ test("Codync opt-in warning waits for UI and stays quiet without it", async () =
 	assert.equal(result.notices.length, 1);
 });
 
-test("fresh registrations reevaluate Codync suppression and preserve non-Codync hc handoff", async () => {
+test("fresh registrations retain native Codync delegation and preserve non-Codync hc handoff", async () => {
 	process.env.CODYNC_PI_MCP_SERVERS = "{}";
-	assert.equal((await register()).tools.length, 0);
+	assert.equal((await register()).tools[0].name, "subagent");
 	delete process.env.CODYNC_PI_MCP_SERVERS;
 	assert.equal((await register()).tools[0].name, "subagent");
 	process.env.HC_TERMINAL_ID = "t7";

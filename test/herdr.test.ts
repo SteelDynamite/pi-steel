@@ -15,7 +15,24 @@ const root = resolve(process.env.STEEL_TEST_PACKAGE_ROOT ?? sourceRoot);
 const run = promisify(execFile);
 
 if (!process.env.STEEL_HERDR_CASE) {
-  test("Orchestrators: Codync/OpenMausBot suppression and Herdr handoff preserve guards, reloads, and shared loadouts", { timeout: 210_000, skip: process.platform === "win32" }, async () => {
+  test("Shipped installer creates discoverable Steel roles without a running Herdr core", { skip: process.platform === "win32" }, async t => {
+    const home = mkdtempSync(join(tmpdir(), "steel-hc-catalog-"));
+    t.after(() => rmSync(home, { recursive: true, force: true }));
+    const env = { HOME: home, PATH: process.env.PATH, XDG_CONFIG_HOME: join(home, ".config"), XDG_RUNTIME_DIR: home };
+    const dir = join(home, ".config/herdr-core/templates");
+    await run(process.execPath, [join(root, "extensions/pi-subagent/skills/herdr-delegation/install.mjs"), "--agent-dir", join(home, "agent")], { cwd: home, env });
+    const roles = ["steel-scout", "steel-worker", "steel-worker-visual", "steel-reviewer"];
+    for (const name of roles) assert(readFileSync(join(dir, `${name}.md`), "utf8").includes(`name: ${name}\n`));
+    try {
+      const { stdout } = await run("hc", ["templates", "--json"], { cwd: home, env, timeout: 3000 });
+      const { templates } = JSON.parse(stdout) as { templates: { name: string; command: string }[] };
+      for (const name of roles) assert(templates.find(t => t.name === name)?.command.startsWith("env PI_ORCHESTRATED_CHILD=1 "));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      t.diagnostic("hc not installed; verified template files only");
+    }
+  });
+  test("Orchestrators: native Codync/OpenMausBot delegation and Herdr handoff preserve guards, reloads, and shared loadouts", { timeout: 210_000, skip: process.platform === "win32" }, async () => {
     const home = mkdtempSync(join(tmpdir(), "steel-herdr-"));
     try {
       const agentDir = join(home, "agent");
@@ -136,7 +153,10 @@ else console.log('# hc manual (herdr-core)\\n' + process.env.STEEL_HERDR_MANUAL)
       const prompt = requests.at(-1)!;
       for (const name of ["scout", "worker", "reviewer"]) assert.equal(prompt.includes(`<id>${name}</id>`), native);
       assert.equal(prompt.includes("## Installed hc manual (already loaded)"), herdr);
+      for (const name of ["steel-scout", "steel-worker", "steel-worker-visual", "steel-reviewer"]) assert.equal((section ?? "").includes(`\`${name}\``), herdr);
       if (herdr) {
+        assert(section.includes("only when the person explicitly asked for review"));
+        assert(section.includes("do small tasks yourself"));
         assert(section.includes(expectedManual));
         assert(prompt.includes(section), "the first request receives the full preloaded section");
         assert.equal(prompt.split("# hc manual (herdr-core)").length, 2, "manual appears exactly once");
@@ -150,13 +170,13 @@ else console.log('# hc manual (herdr-core)\\n' + process.env.STEEL_HERDR_MANUAL)
     };
     const handedOff = variant === "herdr" || variant === "child";
     const botHost = variant.startsWith("codync") ? "Codync" : variant.startsWith("openmausbot") ? "OpenMausBot" : undefined;
-    const native = !handedOff && (!botHost || variant.endsWith("-guards"));
+    const native = !handedOff;
     const todo = !botHost;
     await check(handedOff, native, todo);
     await check(handedOff, native, todo);
-    assert.equal(notices.filter(message => /keeping native subagents/i.test(message)).length, ["fallback", "timeout"].includes(variant) || variant.endsWith("-guards") ? 1 : 0);
+    assert.equal(notices.filter(message => /keeping native subagents/i.test(message)).length, ["fallback", "timeout"].includes(variant) ? 1 : 0);
     if (botHost) {
-      if (native) assert(notices.some(message => message.startsWith(`${botHost} detected; keeping native subagents`)));
+      assert.equal(notices.filter(message => message.startsWith(`${botHost} detected; native subagents`)).length, variant.endsWith("-guards") ? 1 : 0);
       assert(!existsSync(process.env.STEEL_HERDR_PROBES!), `${botHost} never probes hc, including with guards enabled`);
       assert.equal(process.env.PI_CHATGPT_SPEED, "ultrafast");
       await session.reload();
