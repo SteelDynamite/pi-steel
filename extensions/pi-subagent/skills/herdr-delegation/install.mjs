@@ -1,14 +1,26 @@
 import { constants, closeSync, fstatSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { homedir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { isAbsolute, join, win32 } from 'node:path';
 import { parse } from 'yaml';
 
 const roles = ['scout', 'worker', 'worker-visual', 'reviewer'];
 const usage = 'Usage: node install.mjs --agent-dir /absolute/path/to/pi/agent';
 
-function render(role, agentDir) {
+// Only drive-rooted literal paths cross hc's command parser. Use forward slashes
+// so a shell-style splitter cannot consume a Windows backslash. Refuse shell
+// expansion characters rather than assuming hc's configured shell or quoting mode.
+export function windowsPrefix(agentDir, invocation, helper = fileURLToPath(new URL('windows-child.mjs', import.meta.url))) {
+  function quote(value) {
+    if (typeof value !== 'string' || !/^[A-Za-z]:[\\/]/.test(value) || !/^[\p{L}\p{M}\p{N} ._:\\/()+,@-]+$/u.test(value)) throw new Error('Requires a drive-rooted Windows path without shell metacharacters.');
+    return `"${win32.normalize(value).replaceAll('\\', '/')}"`;
+  }
+  if (!invocation) throw new Error('On Windows use /reload in the Herdr Pi parent to identify its CLI.');
+  return ['node', quote(helper), quote(agentDir), quote(invocation.command), ...invocation.args.map(quote)];
+}
+
+function render(role, prefix) {
   const source = readFileSync(new URL(`../../agents/${role}/SUBAGENTS.md`, import.meta.url), 'utf8').replaceAll('\r\n', '\n');
   const parts = /^---\n([\s\S]*?)\n---\n([\s\S]+)$/.exec(source);
   if (!parts) throw new Error(`Invalid bundled role: ${role}`);
@@ -18,7 +30,7 @@ function render(role, agentDir) {
   if (typeof description !== 'string' || /[\r\n]/.test(description) || !description.trim() || !parts[2].trim()) throw new Error(`Invalid role text: ${role}`);
   if (typeof model !== 'string' || !/^[\w.-]+\/[\w.-]+$/.test(model)) throw new Error(`Invalid bundled model: ${role}`);
   const [provider, id] = model.split('/');
-  const cmd = ['env', 'PI_ORCHESTRATED_CHILD=1', `'PI_CODING_AGENT_DIR=${agentDir}'`, 'pi', '--provider', provider, '--model', id];
+  const cmd = [...prefix, '--provider', provider, '--model', id];
   if (thinking !== undefined) {
     if (!['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(thinking)) throw new Error(`Invalid thinking level: ${role}`);
     cmd.push('--thinking', thinking);
@@ -36,25 +48,31 @@ const stamp = /^---\nsteel-managed: v1 ([a-f0-9]{64}) ([a-f0-9]{64})\n/;
 
 function readTemplate(path) {
   let fd;
-  try { fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
+  let before;
+  try { before = lstatSync(path, { bigint: true }); }
   catch (error) { if (error.code === 'ENOENT') return undefined; throw error; }
+  if (!before.isFile()) throw new Error(`Refusing to overwrite non-file ${path}.`);
+  // O_NOFOLLOW is not portable to Windows; verify the opened file against lstat.
+  fd = openSync(path, process.platform === 'win32' ? 'r' : constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
-    const stat = fstatSync(fd);
-    if (stat.isFile() && stat.size <= 256 * 1024) return readFileSync(fd, 'utf8');
+    const stat = fstatSync(fd, { bigint: true });
+    if (stat.isFile() && stat.ino === before.ino && stat.dev === before.dev && stat.size <= 256n * 1024n) return readFileSync(fd, 'utf8');
     throw new Error(`Refusing to overwrite ${path}. Move it aside yourself before reinstalling.`);
   } finally { closeSync(fd); }
 }
 
-export function syncTemplates(agentDir) {
-  if (process.platform === 'win32' || !isAbsolute(agentDir) || /['\x00-\x1f\x7f]/.test(agentDir)) throw new Error('Requires an absolute POSIX agent path without single quotes or control characters.');
+export function syncTemplates(agentDir, invocation) {
+  const windows = process.platform === 'win32';
+  if (!windows && (!isAbsolute(agentDir) || /['\x00-\x1f\x7f]/.test(agentDir))) throw new Error('Requires an absolute POSIX agent path without single quotes or control characters.');
+  const prefix = windows ? windowsPrefix(agentDir, invocation) : ['env', 'PI_ORCHESTRATED_CHILD=1', `'PI_CODING_AGENT_DIR=${agentDir}'`, 'pi'];
   const profile = digest(agentDir);
   const templates = roles.map(role => {
-    const body = render(role, agentDir);
+    const body = render(role, prefix);
     const text = body.replace('---\n', `---\nsteel-managed: v1 ${profile} ${digest(body)}\n`);
     return { name: `steel-${role}.md`, body, text };
   });
-  const config = process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
-  if (!isAbsolute(config)) throw new Error('XDG_CONFIG_HOME must be absolute.');
+  const config = windows ? process.env.APPDATA : process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
+  if (!config || (windows ? !/^[A-Za-z]:[\\/]/.test(config) : !isAbsolute(config))) throw new Error(`${windows ? 'APPDATA' : 'XDG_CONFIG_HOME'} must be absolute.`);
   const directory = join(config, 'herdr-core', 'templates');
   for (const dir of [config, join(config, 'herdr-core'), directory]) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });

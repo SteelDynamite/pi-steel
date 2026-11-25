@@ -8,7 +8,7 @@ import {
 	resolveLocationalAgentId,
 } from "./agents.ts";
 import { CURRENT_LOCATIONAL_ROOT_ENV, DEFAULT_KNOWN_TOOLS, locationalAgentsEnabled } from "./constants.ts";
-import { runDelegation, setKnownToolNames, validateAgentTools } from "./execution.ts";
+import { getPiInvocation, runDelegation, setKnownToolNames, validateAgentTools } from "./execution.ts";
 import {
 	appendLocationalManifest,
 	makeLocationalManifest,
@@ -80,7 +80,7 @@ export default async function (pi: ExtensionAPI) {
 							checked = true;
 							try {
 								const { syncTemplates } = await import("./skills/herdr-delegation/install.mjs");
-								syncTemplates(getAgentDir());
+								syncTemplates(getAgentDir(), process.platform === "win32" ? await getPiInvocation([]) : undefined);
 							} catch (error) {
 								const detail = String(error instanceof Error ? error.message : error).replace(/[\x00-\x1f\x7f-\x9f]/g, " ").slice(0, 300);
 								if (ctx.hasUI) ctx.ui.notify(`Herdr role setup incomplete: ${detail} Inspect the templates, then /reload.`, "warning");
