@@ -174,7 +174,8 @@ if (process.env.RECAP_HOST_CHILD !== "1") {
 	await new Promise(resolve => setTimeout(resolve, 1)); assert.equal(stored.length, 0);
 	block = false; await command(); assert.equal(stored.length, 1, "manual retry remains available");
 
-	assert.equal(extension.handlers.has("agent_settled"), false, "manual-only recaps have no idle scheduler");
+	await reset(); for (let i = 0; i < 3; i++) exchange(`ordinary ${i}`);
+	await emit("agent_settled"); assert.equal(requests.length, 0, "settling is not a recap trigger");
 
 	for (const mode of ["rpc", "json", "print", "child"]) {
 		await reset(); for (let i = 0; i < 3; i++) exchange(`turn ${i}`);
@@ -220,21 +221,29 @@ if (process.env.RECAP_HOST_CHILD !== "1") {
 	assert.equal(focus, editor); assert.doesNotMatch(JSON.stringify(manager.buildSessionContext()), /PRIVATE_PIN/);
 	const pinLeaf = manager.getLeafId();
 	await submitted("extension"); assert.equal(requests.length, 0);
-	await submitted(); await waitUntil(() => view.render(120).join(" ").includes("Verified progress"));
-	assert.equal(requests.length, 1); assert.match(JSON.stringify(requests[0].context.messages.find((m: any) => m.role === "system")), /one short sentence/);
-	assert.match(JSON.stringify(requests[0].context.messages), /Current high-level task/);
-	assert.doesNotMatch(JSON.stringify(requests[0].context), /PRIVATE_PIN/);
-	await emit("agent_start"); await emit("agent_settled"); assert.equal(requests.length, 1);
-	view.handleInput("\x1b[B"); view.handleInput("\r"); view.handleInput("\r");
-	assert.equal(stored.at(-1).text, "Verified progress; validation remains pending."); assert.equal(focus, editor);
+	await submitted();
+	assert.deepEqual(view.render(120).slice(1), ["› Last note: PRIVATE_PIN", "  Write a new note…"]);
+	await emit("agent_end"); assert.equal(focus, view, "a low-level run ending does not dismiss");
+	view.handleInput("\x1b[B"); await emit("agent_settled"); assert.equal(focus, view, "navigation counts as engagement");
+	view.handleInput("\r"); view.handleInput("My next check"); view.handleInput("\r");
+	assert.equal(stored.at(-1).text, "My next check"); assert.equal(focus, editor);
 	await submitted(); view.handleInput("\x1b"); assert.equal(stored.length, 2);
-	block = true; await submitted(); view.handleInput("\r"); view.handleInput(" unsaved");
-	assert.equal(requests.at(-1).options.signal.aborted, true);
-	for (const finish of pending.splice(0)) finish(); await new Promise(resolve => setImmediate(resolve));
+	await submitted(); await emit("agent_settled");
+	assert.equal(focus, editor); assert.equal(stored.length, 2);
+	assert.doesNotMatch(view.render(160).join(" "), /choose|Enter pins|Suggestion:/);
+	// Pi can move focus without emitting ui_prompt_start (e.g. a replacement editor).
+	await submitted(); tui.setFocus(view); await Promise.resolve(); assert.match(view.render(160).join(" "), /↑↓ choose/);
+	tui.setFocus(editor); await Promise.resolve(); assert.doesNotMatch(view.render(160).join(" "), /↑↓ choose/);
+	assert.equal(focus, editor); assert.equal(stored.length, 2);
+	// A host overlay may remember its old focus target. A closed widget must not trap it.
+	tui.setFocus(view); await Promise.resolve(); assert.equal(focus, editor);
+	await submitted(); view.handleInput("\r"); view.handleInput(" unsaved");
+	await emit("agent_settled"); assert.equal(focus, view);
 	assert.match(view.render(160).join(" "), /unsaved/); await emit("ui_prompt_start");
 	assert.equal(focus, editor); assert.equal(stored.length, 2); await emit("ui_prompt_end");
 	manager.branch(pinLeaf); await emit("session_tree"); assert.match(view.render(100).join(""), /PRIVATE_PIN/);
 	view.handleMouse({ type: "click", button: "left" }); assert.equal(focus, view); view.handleInput("\x1b");
 	await emit("session_shutdown");
+	assert.equal(requests.length, 0, "note interactions never use the model, including with configured auth");
 	console.log("Pi 1.4 host recap and note regressions passed");
 }

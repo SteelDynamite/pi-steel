@@ -95,11 +95,22 @@ test("real TUI: all bundled modules, local model, footer/editor/widgets, minimal
     assert.equal(events().filter(event => event.event === "request").length, 2, "one run: todo tool call and final response only");
     assert(events().filter(event => event.event === "request").every(event => event.warning), "pending warning reaches every provider request without persisting a turn");
 
+    const untouchedOffset = transcript.length;
+    send("Finish with the return note untouched.");
+    await wait("second chooser", () => plain(transcript.slice(untouchedOffset)).includes("Write a new note…"));
+    const chooserOffset = transcript.length;
+    await wait("untouched chooser yields to prompt", () => events().filter(event => event.event === "settled").length === 2
+      && plain(transcript.slice(chooserOffset)).includes("Note: Verify counts"));
     const editOffset = transcript.length;
     send("/note");
     await wait("direct note editor", () => plain(transcript.slice(editOffset)).includes("Enter pins"));
     child.stdin!.write(" discard\x1b");
     await wait("Esc restores saved note", () => plain(transcript.slice(editOffset)).includes("Note: Verify counts"));
+    const blurOffset = transcript.length;
+    send("/note");
+    await wait("note reopened", () => plain(transcript.slice(blurOffset)).includes("Enter pins"));
+    child.stdin!.write(" discard\x1b[17~"); // Fixture hands focus to the real prompt, without Esc.
+    await wait("focus handoff removes stale note editor", () => plain(transcript.slice(blurOffset)).includes("Note: Verify counts"));
     for (const active of ["minimal", "full"]) {
       const starts = events().filter(event => event.event === "start").length;
       const outputOffset = transcript.length;
@@ -129,7 +140,7 @@ test("real TUI: all bundled modules, local model, footer/editor/widgets, minimal
     send("/quit");
     await wait("clean exit", () => child!.exitCode !== null);
     assert.equal(child.exitCode, 0, plain(transcript));
-    assert.equal(events().filter(event => event.event === "request").length, 2, "reloads and shutdown must not trigger model work");
+    assert.equal(events().filter(event => event.event === "request").length, 3, "the second submission adds one request; notes, reloads and shutdown add none");
     assert(events().some(event => event.event === "status" && event.key === "tokenSpeed"), "token speed remains active");
     assert(!events().some(event => event.event === "status" && event.key === "steel"), "Steel must not publish footer status after commands or reloads either");
     assert(!existsSync(networkPath), "no process may attempt network access");

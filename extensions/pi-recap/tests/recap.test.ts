@@ -184,11 +184,15 @@ test("only nonblank OpenMausBot markers disable all note registrations", () => {
 			createRecapExtension()({ registerCommand: (n: string) => commands.push(n), on: (n: string) => hooks.push(n), registerEntryRenderer() {} } as any);
 			assert.equal(commands.includes("note"), !marker?.trim());
 			assert.equal(hooks.includes("message_start"), !marker?.trim());
+			assert.equal(hooks.includes("agent_settled"), !marker?.trim());
 			assert.ok(commands.includes("recap"));
 		}
 	} finally { if (prior === undefined) delete process.env.OMB_MCP_CONFIG; else process.env.OMB_MCP_CONFIG = prior; }
 });
 
-test("settlement cannot schedule a recap", () => {
-	assert.equal(harness(conversation(3)).handlers.has("agent_settled"), false);
+test("settlement does not generate or append a recap", () => {
+	const h = harness(conversation(3));
+	h.ctx.modelRegistry.streamSimple = () => assert.fail("settlement requested a model");
+	h.handlers.get("agent_settled")?.({}, h.ctx);
+	assert.deepEqual(h.appended, []);
 });

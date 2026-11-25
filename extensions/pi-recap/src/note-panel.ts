@@ -12,10 +12,8 @@ export class NotePanel implements Component {
 	private previous: Component | null = null;
 	private mode: "pinned" | "choose" | "edit" = "pinned";
 	private input = new Input();
-	private selected = 2;
-	private suggestion: string | undefined;
-	private pending = false;
-	private stopRequest?: () => void;
+	private useLast = false;
+	private navigated = false;
 	private hasFocus = false;
 	saved: string;
 
@@ -23,7 +21,15 @@ export class NotePanel implements Component {
 		this.tui = tui; this.theme = theme; this.saved = saved; this.pin = pin;
 	}
 	get focused() { return this.hasFocus; }
-	set focused(value: boolean) { this.hasFocus = this.input.focused = value; }
+	set focused(value: boolean) {
+		this.hasFocus = this.input.focused = value;
+		// Pi clears the old component's focused flag *before* installing the new
+		// target, even for a same-component refocus. Reconcile after the handoff.
+		queueMicrotask(() => {
+			const ownsFocus = this.tui.getFocusedComponent?.() === this;
+			if ((!ownsFocus && this.mode !== "pinned") || (ownsFocus && this.mode === "pinned" && this.previous)) this.close();
+		});
+	}
 	private takeFocus() {
 		const current = this.tui.getFocusedComponent?.();
 		if (current === this) return true;
@@ -31,32 +37,34 @@ export class NotePanel implements Component {
 		if (!current || !("getExpandedText" in current || ("getText" in current && "setAutocompleteProvider" in current))) return false;
 		this.previous = current;
 		this.tui.setFocus(this);
-		return true;
+		return this.tui.getFocusedComponent?.() === this;
 	}
-	choose(stop: () => void) {
-		if (this.mode !== "pinned" || !this.takeFocus()) return false;
-		this.mode = "choose"; this.selected = this.saved ? 0 : 2;
-		this.pending = true; this.suggestion = undefined; this.stopRequest = stop;
-		this.tui.requestRender(); return true;
-	}
-	updateSuggestion(text?: string) {
-		if (this.mode !== "choose") return;
-		this.suggestion = text; this.pending = false; this.tui.requestRender();
+	choose() {
+		if (this.mode !== "pinned" || !this.takeFocus()) return;
+		this.mode = "choose"; this.navigated = false; this.useLast = Boolean(this.saved);
+		this.tui.requestRender();
 	}
 	edit(text = this.saved) {
 		if (!this.takeFocus()) return;
-		this.stopRequest?.(); this.stopRequest = undefined;
 		this.mode = "edit"; this.pasting = false; this.input = new Input(); this.input.focused = this.focused;
 		this.input.setValue(text); this.input.handleInput("\x05"); // End of prefill.
 		this.input.onEscape = () => this.close();
 		this.input.onSubmit = value => { this.pin(oneLine(value).trim()); this.close(); };
 		this.tui.requestRender();
 	}
+	dismissIfUntouched() {
+		if (this.mode === "choose" && !this.navigated) this.close();
+	}
 	close() {
-		this.stopRequest?.(); this.stopRequest = undefined;
 		this.mode = "pinned";
-		if (this.tui.getFocusedComponent?.() === this) this.tui.setFocus(this.previous);
-		this.previous = null; this.tui.requestRender();
+		// Never take focus back from another component. If an overlay later
+		// restores focus to this now-passive widget, hand it on to the prompt.
+		if (this.tui.getFocusedComponent?.() === this) {
+			const previous = this.previous;
+			this.previous = null;
+			this.tui.setFocus(previous);
+		}
+		this.tui.requestRender();
 	}
 	dispose() { this.close(); }
 	invalidate() { this.input.invalidate(); }
@@ -77,13 +85,10 @@ export class NotePanel implements Component {
 			this.input.handleInput(data);
 		} else if (this.mode === "choose") {
 			if (matchesKey(data, "escape")) this.close();
-			else if (matchesKey(data, "enter")) {
-				const text = [this.saved || undefined, this.suggestion, ""][this.selected];
-				if (text !== undefined) this.edit(text);
-			} else {
-				const delta = matchesKey(data, "up") ? -1 : matchesKey(data, "down") ? 1 : 0;
-				if (delta) do { this.selected = (this.selected + delta + 3) % 3; }
-				while ((this.selected === 0 && !this.saved) || (this.selected === 1 && !this.suggestion));
+			else if (matchesKey(data, "enter")) this.edit(this.useLast ? this.saved : "");
+			else if (matchesKey(data, "up") || matchesKey(data, "down")) {
+				this.navigated = true;
+				if (this.saved) this.useLast = !this.useLast;
 			}
 		}
 		this.tui.requestRender();
@@ -94,6 +99,7 @@ export class NotePanel implements Component {
 		if (this.mode === "pinned") return this.saved ? [line(this.theme.fg("accent", "Note: ") + this.saved)] : [];
 		if (this.mode === "edit") return [line(this.theme.fg("accent", "Edit note · Enter pins · Esc cancels")), ...this.input.render(width).map(line)];
 		return [line(this.theme.fg("accent", "Return note · ↑↓ choose · Enter edits · Esc keeps")),
-			...[`Last note: ${this.saved || "(none yet)"}`, `Suggestion: ${this.suggestion ?? (this.pending ? "generating…" : "unavailable")}`, "Write a new note…"].map((text, i) => line(`${this.selected === i ? "›" : " "} ${text}`))];
+			...(this.saved ? [line(`${this.useLast ? "›" : " "} Last note: ${this.saved}`)] : []),
+			line(`${this.useLast ? " " : "›"} Write a new note…`)];
 	}
 }

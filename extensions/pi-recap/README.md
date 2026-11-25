@@ -10,13 +10,13 @@ pi install https://github.com/SteelDynamite/pi-recap.git
 
 ## Return note (interactive Pi terminal)
 
-When a submitted prompt reaches the agent, a compact chooser above the editor offers your last note, a suggested replacement, and a blank note. Use ↑/↓ and Enter to open a choice for editing; Enter again pins the single line and returns to your ordinary prompt. Pasted line breaks become spaces. Esc at either step discards the draft, not the previous note. A blank submission clears the pin. Use `/note` to edit directly, or click the pinned note in a fullscreen terminal with mouse support. Regular terminal mode leaves clicks to the terminal.
+When a submitted prompt reaches the agent, a compact chooser above the editor offers your last saved note (if any) or a blank note. Use ↑/↓ and Enter to open a choice for editing; Enter again pins the single line and returns to your ordinary prompt. Pasted line breaks become spaces. Esc at either step discards the draft, not the previous note. A blank submission clears the pin. Use `/note` to edit directly, or click the pinned note in a fullscreen terminal with mouse support. Regular terminal mode leaves clicks to the terminal.
 
-The agent continues while you edit. A suggestion arriving late never selects itself or alters a draft. The note stays with its conversation branch across restart, reload, and tree navigation; only submitted notes are persisted. Notes are stored locally in the Pi session file, not secret storage. There is no agent note tool. Selecting or saving a note does not send it to a model.
+The agent continues while you edit. If you ignore the chooser, it closes when the whole run finishes, leaving the saved note unchanged and the ordinary prompt ready. Navigating with ↑/↓ or opening the editor keeps it open across completion. A tool call or retry does not count as completion. If Pi moves keyboard focus elsewhere, the note panel stops asking for input without saving the draft or taking focus back. The note stays with its conversation branch across restart, reload, and tree navigation; only submitted notes are persisted. Notes are stored locally in the Pi session file, not secret storage. There is no agent note tool. Selecting or saving a note does not send it to a model.
 
-For the suggestion, the extension makes at most one auxiliary request per chooser to the current model, which may incur provider charges. It asks for one short sentence about the high-level state of the work, using bounded user/assistant conversation text and the current request, **not** your saved note, unsaved draft, tool output, or raw system prompt. The last note and blank option do not depend on the request succeeding. Offline mode, a missing model, or missing auth leaves them available without a request. Tool iterations and automated continuations do not reopen the chooser. A blocking Pi question takes priority over the note.
+The return note is entirely manual: it makes no model request and works offline. Tool iterations and automated continuations do not reopen the chooser. A blocking Pi question takes priority over the note.
 
-A nonblank `OMB_MCP_CONFIG` disables the note feature at extension initialization, including `/note`, the widget and all suggestion work. Non-terminal and orchestrated-child runs do not open a note UI or request suggestions.
+A nonblank `OMB_MCP_CONFIG` disables the note feature at extension initialization, including `/note` and the widget. Non-terminal and orchestrated-child runs do not open a note UI.
 
 ## Manual recaps
 

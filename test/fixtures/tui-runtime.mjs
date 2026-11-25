@@ -12,6 +12,12 @@ const active = () => {
 export default function (pi) {
   pi.on("session_start", (_event, ctx) => {
     record({ event: "start", active: active(), mode: ctx.mode });
+    // Reproduce another component handing keyboard focus to the normal editor
+    // without opening a Pi dialog; use the real terminal's focus transition.
+    let focusPrompt;
+    ctx.ui.onTerminalInput(data => {
+      if (data === "\x1b[17~" && focusPrompt) { focusPrompt(); return { consume: true }; }
+    });
     const setStatus = ctx.ui.setStatus.bind(ctx.ui);
     ctx.ui.setStatus = (key, value) => {
       record({ event: "status", key, value });
@@ -26,6 +32,7 @@ export default function (pi) {
         if (typeof factory === "function") {
           args[index] = (...factoryArgs) => {
             const component = factory(...factoryArgs);
+            if (method === "setEditorComponent") focusPrompt = () => factoryArgs[0].setFocus(component);
             const render = component.render.bind(component);
             let recorded = false;
             component.render = (width) => {
