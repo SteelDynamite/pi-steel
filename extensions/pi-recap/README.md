@@ -10,7 +10,7 @@ pi install https://github.com/SteelDynamite/pi-recap.git
 
 ## Return note (interactive Pi terminal)
 
-The note stays below the todo list and above the prompt. Saved text wraps to the terminal width; only an empty note shows the shortcut hint. Press **Alt+N** to edit the saved note without losing an unfinished prompt. You can also use `/note` or click the line in fullscreen mode. Starting or finishing a run never focuses the note; the agent can finish while you edit.
+The note stays below the todo list and above the prompt. Its background follows the prompt outline color, including when the thinking level changes or the prompt enters shell mode. Saved text wraps to the terminal width; only an empty note shows the shortcut hint. Press **Alt+N** to edit the saved note without losing an unfinished prompt. You can also use `/note` or click the line in fullscreen mode. Starting or finishing a run never focuses the note; the agent can finish while you edit.
 
 While editing, **Ctrl+C** clears the draft and keeps focus in the note. **Enter** saves and returns to the prompt; saving an empty draft clears the pinned note. **Esc** discards the edit, including a Ctrl+C clear. Pasted line breaks become spaces. Outside the note, Ctrl+C keeps its normal Pi behavior. A blocking question takes priority; if Pi moves focus elsewhere, the note stops editing without saving or taking focus back.
 

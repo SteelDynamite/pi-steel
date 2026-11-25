@@ -1,13 +1,34 @@
-import { Input, matchesKey, truncateToWidth, wrapTextWithAnsi, type Component, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { Input, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import * as terminal from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 
 export const oneLine = (text: string) => text.replace(/[\r\n\t\u2028\u2029]+/gu, " ").replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/gu, "");
+
+// Use Pi 1.4's concrete theme colors when available. Older standalone Pi hosts
+// only expose semantic foreground/background slots and cannot swap them.
+function noteStyle(theme: Theme, token: string): (text: string) => string {
+	if ("colors" in theme && theme.colors && typeof theme.colors === "object" &&
+		"style" in theme && typeof theme.style === "function" && "colorToRgb" in terminal && typeof terminal.colorToRgb === "function") {
+		const color = (theme.colors as Record<string, unknown>)[token];
+		if (color) {
+			const { r, g, b } = terminal.colorToRgb(color);
+			const linear = (v: number) => v <= 10 ? v / 3294.6 : ((v / 255 + 0.055) / 1.055) ** 2.4;
+			const luminance = 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+			// Choose whichever of black and white has higher contrast on the outline color.
+			const options = { bg: color, fg: { kind: "indexed", index: luminance > 0.179 ? 16 : 231 } };
+			const style = theme.style.bind(theme);
+			return text => style(text, options);
+		}
+	}
+	return text => theme.bg("customMessageBg", theme.fg("customMessageText", text));
+}
 
 /** A focusable widget, not a replacement editor or a blocking agent dialog. */
 export class NotePanel implements Component {
 	// Both Pi 1.4 terminal implementations expose this; other TUIs fail closed.
 	private tui: TUI & { getFocusedComponent?: () => Component | null };
 	private theme: Theme;
+	private outline: () => string;
 	private pin: (text: string) => void;
 	private previous: Component | null = null;
 	private mode: "pinned" | "edit" = "pinned";
@@ -15,8 +36,8 @@ export class NotePanel implements Component {
 	private hasFocus = false;
 	saved: string;
 
-	constructor(tui: TUI, theme: Theme, saved: string, pin: (text: string) => void) {
-		this.tui = tui; this.theme = theme; this.saved = saved; this.pin = pin;
+	constructor(tui: TUI, theme: Theme, saved: string, outline: () => string, pin: (text: string) => void) {
+		this.tui = tui; this.theme = theme; this.saved = saved; this.outline = outline; this.pin = pin;
 	}
 	get focused() { return this.hasFocus; }
 	set focused(value: boolean) {
@@ -79,12 +100,13 @@ export class NotePanel implements Component {
 	}
 	private pasting = false;
 	render(width: number) {
-		const line = (s: string) => truncateToWidth(s, width);
-		if (this.mode === "pinned") {
-			const label = this.theme.fg("accent", "Note: ");
-			return this.saved ? wrapTextWithAnsi(label + this.saved, width).map(line)
-				: [line(label + "—" + this.theme.fg("dim", "  Alt+N to edit"))];
-		}
-		return [line(this.theme.fg("accent", "Edit note · Enter pins · Ctrl+C clears · Esc cancels")), ...this.input.render(width).map(line)];
+		const paint = noteStyle(this.theme, this.outline());
+		const rows = this.mode === "edit"
+			? ["Edit note · Enter pins · Ctrl+C clears · Esc cancels", ...this.input.render(width)]
+			: this.saved ? wrapTextWithAnsi(`Note: ${this.saved}`, width) : ["Note: —  Alt+N to edit"];
+		return rows.map(row => {
+			const text = truncateToWidth(row, width);
+			return paint(text + " ".repeat(Math.max(0, width - visibleWidth(text))));
+		});
 	}
 }

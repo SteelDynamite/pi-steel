@@ -211,27 +211,39 @@ if (process.env.RECAP_HOST_CHILD !== "1") {
 	const editor = { getExpandedText: () => "unsent draft" };
 	let focus: any = editor, view: any;
 	const tui = { getFocusedComponent: () => focus, setFocus: (c: any) => { if (focus) focus.focused = false; focus = c; if (c) c.focused = true; }, requestRender() {} };
-	ctx.ui.setWidget = (_key: string, factory?: Function) => { view = factory?.(tui, { fg: (_: string, s: string) => s }); };
+	const { getThemeByName } = await import(new URL("modes/interactive/theme/theme.js", host).href);
+	const { visibleWidth, stripTerminalSequences } = await import(new URL("../../../node_modules/@earendil-works/pi-tui/dist/index.js", import.meta.url).href);
+	let theme = getThemeByName("dark");
+	loaded.runtime.getThinkingLevel = () => "high";
+	ctx.ui.setWidget = (_key: string, factory?: Function) => { view = factory?.(tui, theme); };
+	const rows = (width: number, token = "thinkingHigh") => view.render(width).map((row: string) => {
+		const bg = theme.style("X", { bg: theme.colors[token] }).split("X")[0];
+		assert.ok(row.includes(bg) && row.includes("\x1b[49m"), "use and reset the prompt outline as background");
+		assert.equal(visibleWidth(row), width);
+		return stripTerminalSequences(row).trimEnd();
+	});
 	const sendEvent = async (name: string, payload: any) => { for (const fn of extension.handlers.get(name) ?? []) await fn(payload, ctx); };
 	const submitted = async (source = "interactive") => {
 		await sendEvent("input", { source });
 		await sendEvent("message_start", { message: { role: "user", content: "Current high-level task", timestamp: 123 } });
 	};
 	const shortcut = () => extension.shortcuts.get("alt+n").handler(ctx);
-	await emit("session_start"); assert.equal(focus, editor); assert.deepEqual(view.render(120), ["Note: —  Alt+N to edit"]);
-	await shortcut(); view.handleInput("PRIVATE_PIN"); view.handleInput("\r");
+	await emit("session_start"); assert.equal(focus, editor); assert.deepEqual(rows(120), ["Note: —  Alt+N to edit"]);
+	ctx.ui.getEditorText = () => " !pwd"; rows(120, "bashMode"); ctx.ui.getEditorText = () => "";
+	theme = getThemeByName("light"); await emit("session_start"); rows(120);
+	await shortcut(); assert.equal(rows(120).length, 2); view.handleInput("PRIVATE_PIN"); view.handleInput("\r");
 	assert.equal(focus, editor); assert.doesNotMatch(JSON.stringify(manager.buildSessionContext()), /PRIVATE_PIN/);
 	const pinLeaf = manager.getLeafId();
 	await submitted("extension"); assert.equal(requests.length, 0);
 	await submitted(); await emit("agent_end"); await emit("agent_settled");
-	assert.equal(focus, editor); assert.deepEqual(view.render(120), ["Note: PRIVATE_PIN"]);
-	assert.deepEqual(view.render(7).map((row: string) => row.trimEnd()), ["Note:", "PRIVATE", "_PIN"]);
-	assert.deepEqual(view.render(120), ["Note: PRIVATE_PIN"], "reflow does not change the saved text");
+	assert.equal(focus, editor); assert.deepEqual(rows(120), ["Note: PRIVATE_PIN"]);
+	assert.deepEqual(rows(7), ["Note:", "PRIVATE", "_PIN"]);
+	assert.deepEqual(rows(120), ["Note: PRIVATE_PIN"], "reflow does not change the saved text");
 	await shortcut(); view.handleInput("\x03"); view.handleInput("\x03");
 	assert.equal(focus, view); view.handleInput("\x1b"); assert.equal(stored.length, 1);
 	assert.match(view.render(120)[0], /PRIVATE_PIN/);
 	await shortcut(); view.handleInput("\x03"); view.handleInput("\r");
-	assert.equal(stored.at(-1).text, ""); assert.equal(focus, editor); assert.deepEqual(view.render(120), ["Note: —  Alt+N to edit"]);
+	assert.equal(stored.at(-1).text, ""); assert.equal(focus, editor); assert.deepEqual(rows(120), ["Note: —  Alt+N to edit"]);
 	// Pi can move focus without emitting ui_prompt_start (e.g. a replacement editor).
 	await shortcut(); tui.setFocus(view); await Promise.resolve(); assert.match(view.render(160).join(" "), /Enter pins/);
 	tui.setFocus(editor); await Promise.resolve(); assert.doesNotMatch(view.render(160).join(" "), /Enter pins/);
