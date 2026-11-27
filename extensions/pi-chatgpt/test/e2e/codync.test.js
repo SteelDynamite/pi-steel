@@ -7,7 +7,7 @@ import extension from "../../extensions/chatgpt.js"
 
 async function fixture(
   t,
-  { marker, ombConfig, speed = "standard", saved = "standard" } = {},
+  { marker, ombConfig, orca = {}, speed = "standard", saved = "standard" } = {},
 ) {
   const originalEnv = { ...process.env }
   const directory = await mkdtemp(join(tmpdir(), "pi-chatgpt-codync-"))
@@ -20,6 +20,9 @@ async function fixture(
   if (marker !== undefined) process.env.CODYNC_PI_MCP_SERVERS = marker
   delete process.env.OMB_MCP_CONFIG
   if (ombConfig !== undefined) process.env.OMB_MCP_CONFIG = ombConfig
+  delete process.env.ORCA_STRUCTURED_SESSION
+  delete process.env.ORCA_TERMINAL_HANDLE
+  Object.assign(process.env, orca)
   const configPath = join(directory, "chatgpt.json")
   const config = `${JSON.stringify({
     quotaWindow: "hidden",
@@ -170,12 +173,54 @@ test("OpenMausBot locks Ultrafast without changing the saved speed", async (t) =
   assert.equal(await readFile(configPath, "utf8"), config)
 })
 
+test("Orca locks Ultrafast in structured chats with or without a terminal handle", async (t) => {
+  for (const handle of [undefined, "test-terminal"]) {
+    await t.test(`handle ${handle}`, async (t) => {
+      const orca = { ORCA_STRUCTURED_SESSION: "1" }
+      if (handle) orca.ORCA_TERMINAL_HANDLE = handle
+      const { handlers, commands, notices, ctx, configPath, config } =
+        await fixture(t, { orca, saved: "fast" })
+      await commands.get("fast").handler("off", ctx)
+      assert.match(notices.at(-1).message, /Ultrafast is enforced for Orca/)
+      await commands.get("fast").handler("status", ctx)
+      assert.match(
+        notices.at(-1).message,
+        /Ultrafast \(active\).*Enforced for Orca/,
+      )
+      const payload = { model: ctx.model.id }
+      const request = () =>
+        handlers.get("before_provider_request")({ payload }, ctx)
+      assert.deepEqual(request(), { ...payload, service_tier: "ultrafast" })
+      ctx.modelRegistry.isUsingOAuth = () => false
+      assert.equal(request(), undefined)
+      assert.equal(await readFile(configPath, "utf8"), config)
+      await handlers.get("session_shutdown")()
+      assert.equal(process.env.PI_CHATGPT_SPEED, "standard")
+    })
+  }
+})
+
+test("an Orca managed terminal alone does not lock speed", async (t) => {
+  const { commands, notices, ctx } = await fixture(t, {
+    orca: { ORCA_TERMINAL_HANDLE: "test-terminal" },
+  })
+  assert.equal(process.env.PI_CHATGPT_SPEED, "standard")
+  await commands.get("fast").handler("temporary fast", ctx)
+  assert.equal(process.env.PI_CHATGPT_SPEED, "fast")
+  assert.doesNotMatch(notices.at(-1).message, /enforced/i)
+})
+
 test("ordinary RPC clients and blank bot markers do not force speed", async (t) => {
   for (const marker of [undefined, "", " \t\n"]) {
     await t.test(`marker ${JSON.stringify(marker)}`, async (t) => {
       const { commands, notices, ctx } = await fixture(t, {
         marker,
         ombConfig: marker,
+        orca: {
+          ORCA_CLI_COMMAND: "orca-ide",
+          ORCA_STRUCTURED_SESSION: "0",
+          ...(marker === undefined ? {} : { ORCA_TERMINAL_HANDLE: marker }),
+        },
       })
       assert.equal(process.env.PI_CHATGPT_SPEED, "standard")
       await commands.get("fast").handler("temporary fast", ctx)

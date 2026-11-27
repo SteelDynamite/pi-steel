@@ -50,6 +50,7 @@ export function createRecapExtension(options: RuntimeOptions = {}) {
 	const requestTimeoutMs = options.requestTimeoutMs ?? 60_000;
 
 	return function recapExtension(pi: ExtensionAPI) {
+		if (process.env.ORCA_STRUCTURED_SESSION === "1") return;
 		if (!process.env.OMB_MCP_CONFIG?.trim()) registerNotes(pi);
 		let generation: {
 			controller: AbortController;

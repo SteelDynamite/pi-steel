@@ -57,6 +57,9 @@ export default async function (pi: ExtensionAPI) {
 	const botHost = process.env.CODYNC_PI_MCP_SERVERS?.trim() ? "Codync" : process.env.OMB_MCP_CONFIG?.trim() ? "OpenMausBot" : undefined;
 	if (botHost) {
 		if (locationalAgentsEnabled()) warning = `${botHost} detected; native subagents have explicitly enabled locational guards.`;
+	} else if (process.env.ORCA_STRUCTURED_SESSION === "1" || process.env.ORCA_TERMINAL_HANDLE?.trim()) {
+		if (locationalAgentsEnabled()) registerBoundaryGuard(pi, false);
+		return;
 	} else if (process.env.HC_TERMINAL_ID?.trim()) {
 		const skillPath = fileURLToPath(new URL("./skills/herdr-delegation/SKILL.md", import.meta.url));
 		warning = "Herdr detected, but hc --skill is unavailable. Keeping native subagents. Install/update hc (https://herdr.dev/core/), ensure it is on Pi's PATH, then /reload.";
@@ -203,6 +206,11 @@ export default async function (pi: ExtensionAPI) {
 		else delete event.systemPromptOptions.sections.pi_subagent;
 	});
 
+	registerBoundaryGuard(pi, true);
+	registerSubagentTool(pi);
+}
+
+function registerBoundaryGuard(pi: ExtensionAPI, nativeDelegation: boolean) {
 	pi.on("tool_call", async (event, ctx) => {
 		if (event.toolName === "subagent" || !locationalAgentsEnabled() || !ctx.isProjectTrusted()) return;
 		const roots = getGuardedLocationalRoots(ctx.cwd);
@@ -230,11 +238,15 @@ export default async function (pi: ExtensionAPI) {
 			const root = roots.find((item) => isPathInside(candidate, item) || (recursive && isPathInside(item, candidate)))
 				?? (containing && containing !== (process.env[CURRENT_LOCATIONAL_ROOT_ENV] ? canonicalPath(process.env[CURRENT_LOCATIONAL_ROOT_ENV]!) : undefined) ? containing : undefined);
 			if (!root) continue;
+			if (!nativeDelegation) return { block: true, reason: `Locational boundary enforced for "${root}". Native subagent delegation is unavailable in Orca.` };
 			notifyLocationalBoundaryDiscovered(ctx, root);
 			return { block: true, reason: `Locational boundary enforced: delegate with subagent using locational agent id "${root}" instead of accessing it directly.` };
 		}
 	});
 
+}
+
+function registerSubagentTool(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "subagent",
 		// Standalone tool rendering and progress require direct model calls in every mode.

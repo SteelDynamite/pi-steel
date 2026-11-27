@@ -8,6 +8,8 @@ A [Pi Coding Agent](https://pi.dev) extension for a pinned, personal return note
 pi install https://github.com/SteelDynamite/pi-recap.git
 ```
 
+Orca structured chats (`ORCA_STRUCTURED_SESSION=1`) do not register recaps or return notes. An Orca terminal handle alone does not disable either feature. Existing entries are not deleted.
+
 ## Return note (interactive Pi terminal)
 
 The note stays below the todo list and above the prompt. Its text uses the terminal’s bright blue on the normal terminal background, independent of the prompt outline. Saved text wraps to the terminal width; only an empty note shows the shortcut hint. Press **Alt+N** to edit the saved note without losing an unfinished prompt. You can also use `/note` or click the line in fullscreen mode. Starting or finishing a run never focuses the note; the agent can finish while you edit.

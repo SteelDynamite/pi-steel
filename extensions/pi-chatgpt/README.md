@@ -132,16 +132,17 @@ Accelerated modes can consume ChatGPT credits faster. OpenAI currently documents
 
 The selected mode propagates to new subprocesses as `PI_CHATGPT_SPEED=standard|fast|ultrafast`. `PI_CHATGPT_FAST=1|0` remains the effective, model-aware compatibility signal (`1` for effective Fast or Ultrafast). Selection survives model switches: unsupported models receive no override, but the selected speed remains available when switching back to a supported model. Child processes that inherit these variables and load this extension retain the selected speed even when they choose a different model, including Astra → Sol 6.1 Ultrafast. Previous values are restored on shutdown. A temporary selection is not written to disk and is lost on reload, session replacement, or process exit.
 
-### Codync and OpenMausBot sessions
+### Host-enforced Ultrafast
 
-Codync and OpenMausBot sessions enforce Ultrafast ahead of inherited speed variables and saved preferences. `/fast status` identifies the policy; speed-changing `/fast` commands explain the lock without changing the session or saving a preference. This is a process-local policy, reapplied on reload and session replacement, not a change to normal Pi defaults. Existing footer configuration and legacy migration still work normally.
+Codync sessions, OpenMausBot sessions, and Orca structured chats enforce Ultrafast ahead of inherited speed variables and saved preferences. `/fast status` identifies the policy; speed-changing `/fast` commands explain the lock without changing the session or saving a preference. This is a process-local policy, reapplied on reload and session replacement, not a change to normal Pi defaults. Existing footer configuration and legacy migration still work normally.
 
 Detection uses nonblank launcher variables at extension initialization:
 
 - [Codync's Pi bridge](https://github.com/leepokai/Codync/blob/b29eaf2637e1dbc84f161ca93870aa4f9f4c1c58/host/src/agent/bot/pi_tools.rs#L75-L93) sets `CODYNC_PI_MCP_SERVERS` (including `"{}"`); [pi-acp preserves it](https://github.com/svkozak/pi-acp/blob/04d0a15d6bb42bb65cce5c9caedcdcb2cdcb6905/src/pi-rpc/process.ts#L154-L171).
+- Orca 1.4.280 sets `ORCA_STRUCTURED_SESSION=1` for structured chats. Only that exact flag activates the Orca lock. A managed terminal handle, installed CLI, or installed Pi skills do not lock speed.
 - [OpenMausBot's Pi launcher](https://github.com/milind-soni/OpenMausBot/blob/9f67fa5e7e386a94d726849f105b827992851684/server/drivers/pi.ts#L475-L483) sets `OMB_MCP_CONFIG` to the MCP configuration path. Steel never opens that file for detection.
 
-These are internal launcher signals, not stable APIs. Their values are neither parsed nor logged. Generic RPC mode, `PI_ACP_PI_COMMAND`, and unrelated launcher variables do not activate the policy.
+These are internal launcher signals, not stable APIs. Steel does not open launcher files, parse configuration payloads, or log marker values. Generic RPC mode, `PI_ACP_PI_COMMAND`, and unrelated launcher variables do not activate the policy.
 
 Ultrafast remains subject to the supported model, `openai` provider, ChatGPT OAuth, and upstream account eligibility requirements above. Unsupported models send no override, not a fallback to Fast. Subprocesses inherit the selected speed as usual. No global speed preference is written, and shutdown restores the previous speed environment.
 

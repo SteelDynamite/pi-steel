@@ -18,7 +18,7 @@ pi -e ./index.ts
 
 ## Usage
 
-**Codync and OpenMausBot exception:** When `CODYNC_PI_MCP_SERVERS` (Codync, including `"{}"`) or `OMB_MCP_CONFIG` (OpenMausBot) is nonblank at initialization, `pi-todo` registers neither the tool nor its lifecycle hooks. It does not show a widget, restore a title, send pending-order reminders, or modify saved todos or loadout settings. Reloading or resuming the same branch outside these bot hosts makes its saved list available again. The locational-guard opt-in belongs to `pi-subagent` and does not enable `pi-todo`.
+**Host exceptions:** In Orca structured chats (`ORCA_STRUCTURED_SESSION=1`), Orca managed terminals (nonblank `ORCA_TERMINAL_HANDLE`), or when `CODYNC_PI_MCP_SERVERS` (Codync) or `OMB_MCP_CONFIG` (OpenMausBot) is nonblank at initialization, `pi-todo` registers neither the tool nor its lifecycle hooks. It does not show a widget, restore a title, send pending-order reminders, or modify saved todos or loadout settings. Reloading or resuming the same branch outside these bot hosts makes its saved list available again. The locational-guard opt-in belongs to `pi-subagent` and does not enable `pi-todo`.
 
 Outside these bot sessions, the extension adds a branch-aware `todo` tool for the agent:
 

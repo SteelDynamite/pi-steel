@@ -35,6 +35,10 @@ Behavioral agents need no opt-in. Only `PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS=1` 
 
 This is process-local: no global loadout or saved settings change. `/reload` reevaluates registration from the process environment; start a new process if its launch environment changes. Existing session text is not erased. Ordinary Pi and Herdr behavior remain unchanged when neither bot signal is present.
 
+## Orca
+
+In an Orca structured chat (`ORCA_STRUCTURED_SESSION=1`) or managed terminal (nonblank `ORCA_TERMINAL_HANDLE`), Orca owns delegation. Pi registers no `subagent` tool, settings command, role advertising, or Herdr handoff. Explicitly enabled locational boundaries still block direct access; they do not re-enable native delegation. Codync and OpenMausBot keep their existing policy when launched inside a managed terminal.
+
 ## Herdr handoff
 
 With a nonempty `HC_TERMINAL_ID`, initialization runs `hc --skill` once through Pi's subprocess API (3-second timeout, 256 KiB output cap). A successful, untruncated manual identifying `herdr-core` is cached for that extension runtime. Before each model run, one named system-prompt section supplies that manual, the bundled delegation guidance, and JSON-encoded `HC_TERMINAL_ID`, resolved `PI_CODING_AGENT_DIR`, cwd, and project trust. Only those launch values are included, not the general process environment. The manual is not vendored or written to disk.

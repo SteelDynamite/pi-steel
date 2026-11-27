@@ -198,7 +198,8 @@ class TodoWidget {
 
 export default function (pi: ExtensionAPI) {
 	// Skip registration in these bot hosts, not in generic RPC clients.
-	if (process.env.CODYNC_PI_MCP_SERVERS?.trim() || process.env.OMB_MCP_CONFIG?.trim()) return;
+	if (process.env.CODYNC_PI_MCP_SERVERS?.trim() || process.env.OMB_MCP_CONFIG?.trim()
+		|| process.env.ORCA_STRUCTURED_SESSION === "1" || process.env.ORCA_TERMINAL_HANDLE?.trim()) return;
 
 	let model: TodoModel = createTodoModel();
 	let currentTurn = 0;

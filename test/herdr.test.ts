@@ -60,10 +60,15 @@ else console.log('# hc manual (herdr-core)\\n' + process.env.STEEL_HERDR_MANUAL)
       const settingsBefore = readFileSync(settingsPath, "utf8");
       const configBefore = readFileSync(configPath, "utf8");
       // Keep cross-runtime interference coverage without starting six Pi runtimes at once.
-      for (const variants of [["native", "herdr"], ["fallback", "timeout"], ["child", "child-fallback"], ["codync", "codync-guards"], ["openmausbot", "openmausbot-guards"]]) {
+      for (const variants of [["native", "herdr"], ["fallback", "timeout"], ["child", "child-fallback"], ["codync", "codync-guards"], ["openmausbot", "openmausbot-guards"], ["orca-chat", "orca-terminal"]]) {
         await Promise.all(variants.map(async variant => {
           const cwd = join(home, variant);
           mkdirSync(cwd);
+          if (variant.startsWith("orca-")) {
+            const dir = join(cwd, ".pi/reminders");
+            mkdirSync(dir, { recursive: true });
+            writeFileSync(join(dir, "fixture.ts"), 'export default () => ({ on: "session_start", when: () => false, message: "fixture" });');
+          }
           const network = join(home, `${variant}-network`);
           const probes = join(home, `${variant}-probes`);
           const { stdout, stderr } = await run(process.execPath, ["--import", "tsx", fileURLToPath(import.meta.url)], {
@@ -73,6 +78,8 @@ else console.log('# hc manual (herdr-core)\\n' + process.env.STEEL_HERDR_MANUAL)
               STEEL_TEST_PACKAGE_ROOT: root, STEEL_HERDR_CASE: variant, STEEL_HERDR_CWD: cwd, STEEL_HERDR_PROBES: probes, STEEL_HERDR_MANUAL: "manual-v1",
               NODE_OPTIONS: `--import=${join(sourceRoot, "test/fixtures/child-network-guard.mjs")}`, STEEL_NETWORK_ATTEMPTS: network,
               ...(variant !== "native" ? { HC_TERMINAL_ID: `t-${variant}` } : {}),
+              ...(variant === "orca-chat" ? { ORCA_STRUCTURED_SESSION: "1" } : {}),
+              ...(variant === "orca-terminal" ? { ORCA_TERMINAL_HANDLE: "fixture" } : {}),
               ...(variant.startsWith("child") ? { PI_ORCHESTRATED_CHILD: "1" } : {}),
               ...(variant.startsWith("codync") ? { CODYNC_PI_MCP_SERVERS: "{}" } : {}),
               ...(variant.startsWith("openmausbot") ? { OMB_MCP_CONFIG: join(cwd, "mcp.json") } : {}),
@@ -82,7 +89,7 @@ else console.log('# hc manual (herdr-core)\\n' + process.env.STEEL_HERDR_MANUAL)
           });
           assert.match(stdout, /Herdr case passed:/, `${stdout}\n${stderr}`);
           assert(!existsSync(network), `${variant} attempted networking`);
-          if (variant === "native") assert(!existsSync(probes), "outside hc: no process probe");
+          if (variant === "native" || variant.startsWith("orca-")) assert(!existsSync(probes), `${variant}: no hc probe`);
           else for (const line of readFileSync(probes, "utf8").trim().split("\n")) assert.deepEqual(JSON.parse(line), ["--skill"], "never start or inspect a daemon");
         }));
       }
@@ -176,11 +183,22 @@ else console.log('# hc manual (herdr-core)\\n' + process.env.STEEL_HERDR_MANUAL)
     };
     const handedOff = variant === "herdr" || variant === "child";
     const botHost = variant.startsWith("codync") ? "Codync" : variant.startsWith("openmausbot") ? "OpenMausBot" : undefined;
-    const native = !handedOff;
-    const todo = !botHost;
+    const orca = variant.startsWith("orca-");
+    const native = !handedOff && !orca;
+    const todo = !botHost && !orca;
     await check(handedOff, native, todo);
     await check(handedOff, native, todo);
     assert.equal(notices.filter(message => /keeping native subagents/i.test(message)).length, ["fallback", "timeout"].includes(variant) ? 1 : 0);
+    if (orca) {
+      for (let iteration = 0; iteration < 2; iteration++) {
+        if (iteration) await session.reload();
+        await check(false, false, false);
+        for (const name of ["note", "recap"]) assert.equal(!!session.extensionRunner.getCommand(name), variant === "orca-terminal", name);
+        assert(session.extensionRunner.getCommand("reminders"));
+        assert(requests.at(-1)!.includes("## System reminders"), "configured reminders still load");
+        assert.equal(process.env.PI_CHATGPT_SPEED, variant === "orca-chat" ? "ultrafast" : "standard");
+      }
+    }
     if (botHost) {
       assert.equal(notices.filter(message => message.startsWith(`${botHost} detected; native subagents`)).length, variant.endsWith("-guards") ? 1 : 0);
       assert(!existsSync(process.env.STEEL_HERDR_PROBES!), `${botHost} never probes hc, including with guards enabled`);

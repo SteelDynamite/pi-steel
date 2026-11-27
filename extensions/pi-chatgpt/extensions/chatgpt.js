@@ -980,6 +980,13 @@ export const __test__ = {
   resolveChatGptBaseUrl,
 }
 
+function speedPolicyHost() {
+  if (process.env.CODYNC_PI_MCP_SERVERS?.trim()) return "Codync"
+  if (process.env.OMB_MCP_CONFIG?.trim()) return "OpenMausBot"
+  if (process.env.ORCA_STRUCTURED_SESSION === "1") return "Orca"
+  return undefined
+}
+
 export default function (pi) {
   /** @type {Promise<unknown>} */
   let inFlight = Promise.resolve()
@@ -989,11 +996,7 @@ export default function (pi) {
   const inheritedFastEnv = process.env[FAST_ENV]
   const inheritedSpeedEnv = process.env[SPEED_ENV]
   // Only these launchers enforce speed; ordinary RPC clients keep their preferences.
-  const botHost = process.env.CODYNC_PI_MCP_SERVERS?.trim()
-    ? "Codync"
-    : process.env.OMB_MCP_CONFIG?.trim()
-      ? "OpenMausBot"
-      : undefined
+  const botHost = speedPolicyHost()
   let ownedFastEnvValue
   let ownedSpeedEnvValue
 

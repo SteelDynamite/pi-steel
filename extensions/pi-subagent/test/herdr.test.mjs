@@ -6,7 +6,7 @@ import { beforeEach, test } from "node:test";
 import subagentExtension from "../index.ts";
 
 beforeEach(() => {
-	for (const key of ["HC_TERMINAL_ID", "HERDR_ENV", "PI_ORCHESTRATED_CHILD", "PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS", "CODYNC_PI_MCP_SERVERS", "OMB_MCP_CONFIG", "CODYNC_HOME", "PI_ACP_PI_COMMAND"]) delete process.env[key];
+	for (const key of ["HC_TERMINAL_ID", "HERDR_ENV", "PI_ORCHESTRATED_CHILD", "PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS", "CODYNC_PI_MCP_SERVERS", "OMB_MCP_CONFIG", "CODYNC_HOME", "PI_ACP_PI_COMMAND", "ORCA_STRUCTURED_SESSION", "ORCA_TERMINAL_HANDLE"]) delete process.env[key];
 });
 
 async function register(result = { code: 0, stdout: "# hc manual (herdr-core)", stderr: "" }) {
@@ -225,6 +225,23 @@ test("fresh registrations retain native Codync delegation and preserve non-Codyn
 	assert.equal(handoff.tools.length, 0);
 	assert.deepEqual([...handoff.handlers.keys()], ["session_start", "before_agent_start"]);
 	assert.equal(handoff.probes.length, 1);
+});
+
+test("Orca retains opted-in boundary enforcement without offering native delegation", async t => {
+	process.env.ORCA_TERMINAL_HANDLE = "fixture";
+	process.env.PI_SUBAGENT_ENABLE_LOCATIONAL_AGENTS = "1";
+	const result = await register();
+	assert.deepEqual(result.tools, []);
+	assert.equal(result.commands.size, 0);
+	assert.deepEqual([...result.handlers.keys()], ["tool_call"]);
+	const cwd = mkdtempSync(join(tmpdir(), "pi-orca-guard-"));
+	t.after(() => rmSync(cwd, { recursive: true, force: true }));
+	mkdirSync(join(cwd, "owned"));
+	writeFileSync(join(cwd, "owned/SUBAGENTS.md"), "---\ndescription: Owned area\n---\nGuard this area.\n");
+	const ctx = { ...result.ctx, cwd, isProjectTrusted: () => true };
+	const blocked = await result.handlers.get("tool_call")[0]({ toolName: "ls", input: { path: "owned" } }, ctx);
+	assert.equal(blocked.block, true);
+	assert.match(blocked.reason, /unavailable in Orca/);
 });
 
 test("explicit locational guards prevent automatic handoff", async () => {
